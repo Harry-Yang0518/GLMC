@@ -31,7 +31,7 @@ def get_model(args):
         elif args.arch == 'resnet18':
             net = ResNet_cifar.resnet18(num_class=args.num_classes, etf_cls=args.etf_cls)
         elif args.arch == 'resnet32':
-            net = ResNet_cifar.resnet32(num_class=args.num_classes, etf_cls=args.etf_cls, fnorm=args.fnorm)
+            net = ResNet_cifar.resnet32(num_class=args.num_classes, etf_cls=args.etf_cls, fnorm=args.fnorm, center=args.center, l2norm=args.l2norm)
         elif args.arch == 'resnet34':
             net = ResNet_cifar.resnet34(num_class=args.num_classes, etf_cls=args.etf_cls)
 
