@@ -1,0 +1,15 @@
+.idea/
+*.txt
+*.out
+*.log
+result/
+# result_08/
+# result_09/
+data/
+__pycache__/
+output/
+*.pyc
+imbalance_data/__pycache__/
+wandb/
+GLMC-2023/
+dataset/
