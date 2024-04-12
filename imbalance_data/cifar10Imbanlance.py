@@ -88,5 +88,27 @@ class Cifar10Imbalance(Dataset):
             "y": rehearsal_label,
         }
         # split the data into majority class and minority class
-
+        # do it here
         return task_split
+    
+    def split_majority_minority(self):
+        majority_data = []
+        majority_labels = []
+        minority_data = []
+        minority_labels = []
+
+        majority_threshold = max(self.per_class_num) // 2  # Threshold to distinguish majority vs minority
+
+        for i in range(self.num_cls):
+            indices = np.where(np.array(self.y) == i)[0]
+            if self.per_class_num[i] > majority_threshold:
+                majority_data.extend(self.x[indices])
+                majority_labels.extend(np.array(self.y)[indices])
+            else:
+                minority_data.extend(self.x[indices])
+                minority_labels.extend(np.array(self.y)[indices])
+
+        return {
+            "majority": {"x": np.array(majority_data), "y": np.array(majority_labels)},
+            "minority": {"x": np.array(minority_data), "y": np.array(minority_labels)}
+        }

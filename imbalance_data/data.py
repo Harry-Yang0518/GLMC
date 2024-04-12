@@ -4,18 +4,46 @@ from . import cifar10Imbanlance, cifar100Imbanlance, dataset_lt_data
 from .transform import get_transform, TwoCropTransform
 from .cifar import CIFAR10, CIFAR100
 from torchvision import datasets, transforms
-
+from copy import deepcopy  # Make sure to import deepcopy
 data_folder = 'data/' # for greene,  '../dataset' for local
 
 def get_dataset(args):
     transform_train, transform_val = get_transform(args.dataset, args.aug)
+    
     if args.dataset == 'cifar10':
-        trainset = cifar10Imbanlance.Cifar10Imbalance(imbalance_rate=args.imbalance_rate, imbalance_type=args.imbalance_type,
-                                                       train=True, transform=transform_train, file_path=args.root)
-        testset = cifar10Imbanlance.Cifar10Imbalance(imbalance_rate=args.imbalance_rate, imbalance_type=args.imbalance_type,
-                                                      train=False, transform=transform_val, file_path=args.root)
+        # Initialize the imbalanced CIFAR-10 dataset
+        trainset = cifar10Imbanlance.Cifar10Imbalance(
+            imbalance_rate=args.imbalance_rate,
+            imbalance_type=args.imbalance_type,
+            num_cls=10,  # Assuming 10 classes for CIFAR-10
+            file_path=args.root,
+            train=True,
+            transform=transform_train
+        )
+        testset = cifar10Imbanlance.Cifar10Imbalance(
+            imbalance_rate=args.imbalance_rate,
+            imbalance_type=args.imbalance_type,
+            num_cls=10,  # Assuming 10 classes for CIFAR-10
+            file_path=args.root,
+            train=False,
+            transform=transform_val
+        )
         print("load cifar10")
-        return trainset, testset
+        
+        # Split the training dataset into majority and minority subsets
+        subsets = deepcopy(trainset)
+        split_subsets = subsets.split_majority_minority()
+        majority_subset = {
+            'x': split_subsets['majority']['x'], 
+            'y': split_subsets['majority']['y']
+        }
+        minority_subset = {
+            'x': split_subsets['minority']['x'], 
+            'y': split_subsets['minority']['y']
+        }
+
+        # Return datasets and subsets
+        return trainset, testset, majority_subset, minority_subset
 
     elif args.dataset == 'cifar100':
         trainset = cifar100Imbanlance.Cifar100Imbalance(imbalance_rate=args.imbalance_rate, imbalance_type=args.imbalance_type,

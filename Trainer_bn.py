@@ -38,7 +38,7 @@ def get_samples_per_class(dataset, num_samples_per_class=10, num_classes=10):
 
 
 class Trainer_bn(object):
-    def __init__(self, args, model=None,train_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=None):
+    def __init__(self, args, model=None,train_loader=None, majority_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=None):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.args = args
         self.print_freq = args.print_freq
@@ -46,6 +46,7 @@ class Trainer_bn(object):
         self.num_classes = args.num_classes
 
         self.train_loader = train_loader
+        self.majority_loader = majority_loader
         self.val_loader = val_loader
         self.weighted_train_loader = weighted_train_loader
 
@@ -100,7 +101,7 @@ class Trainer_bn(object):
             train_loader = self.weighted_train_loader
         else:
             train_loader = self.train_loader
-
+        
         for i, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
 
@@ -114,8 +115,8 @@ class Trainer_bn(object):
             else:
                 freq = torch.bincount(targets, minlength=self.args.num_classes)
                 cls_idx = torch.where(freq==0)[0]
-                bn_inputs = torch.cat([self.queue[k] for k in cls_idx.numpy()], dim=0).to(self.device)
-                bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.numpy()], dim=0).to(self.device)
+                bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+                bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
 
                 all_inputs = torch.cat([inputs, bn_inputs])
                 all_targets = torch.cat([targets, bn_targets])
@@ -127,14 +128,17 @@ class Trainer_bn(object):
             for k in self.queue:
                 cls_idx = torch.where(targets == k)[0]
                 if len(cls_idx) == 0:
-                    pass
+                    continue
                 else:
                     ptr = self.queue_ptr[k]
-                    num_cls = min(len(self.queue[k]), len(cls_idx))
+                    num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
 
-                    # replace the keys at ptr (dequeue and enqueue)
+                    # Dynamically adjust the shape of the source tensor to match the destination
                     self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
-                    self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])  # move pointer
+
+                    # Safely update the pointer with wrap-around
+                    self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
+
 
             # ==== update loss and acc
             train_acc.update(torch.sum(output.argmax(dim=-1) == targets).item() / targets.size(0),
@@ -269,7 +273,7 @@ class Trainer_bn(object):
             for i, (input, target) in enumerate(self.val_loader):
                 input, target = input.to(self.device), target.to(self.device)
 
-                output = self.model(input, ret='o')
+                output = self.model(input, target, ret='o')
                 all_logits.append(output)
                 all_targets.append(target)
             all_logits = torch.cat(all_logits)
@@ -302,7 +306,7 @@ class Trainer_bn(object):
         with torch.no_grad():
             for i, (input, target) in enumerate(self.val_loader):
                 input, target = input.to(self.device), target.to(self.device)
-                _, feats = self.model(input, ret='of')  # pred from fc_bc
+                _, feats = self.model(input, target, ret='of')  # pred from fc_bc
                 logit = self.knn_classifier(feats)
                 all_logits.append(logit)
                 all_targets.append(target)
@@ -379,7 +383,7 @@ class Trainer_bn(object):
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
 
                 # Calculate Features of each training data
-                _, feats = self.model(inputs, ret='of')
+                _, feats = self.model(inputs, labels, ret='of')
                 feats_all.append(feats.cpu().numpy())
                 labels_all.append(labels.cpu().numpy())
 
