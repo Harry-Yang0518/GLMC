@@ -28,33 +28,39 @@ class BalancedBatchNorm2d(nn.Module):
 
 
 def batch_norm(X, label, gamma, beta, moving_mean, moving_var, eps, momentum):
-    # Use is_grad_enabled to determine whether we are in training mode
+    max_label = label.max().item()  # Get the maximum label index used
+    num_classes = max_label + 1    # Correct num_classes calculation
+
     if not torch.is_grad_enabled():
         X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
     else:
-        assert len(X.shape) in (2, 4)
+        assert len(X.shape) in (2, 4), "Input tensor must be either 2D or 4D"
         if len(X.shape) == 2:
-            # When using a fully connected layer, calculate the mean and variance on the feature dimension
             mean = X.mean(dim=0)
             var = ((X - mean) ** 2).mean(dim=0)
         else:
-            # When using a two-dimensional conv layer, calculate mean and variance on channel dimension (axis=1).
             batch_size, C, H, W = X.shape
-            sum_ = torch.zeros((torch.unique(label).size(0), C, H, W), dtype=X.dtype,device=X.device)   # [B, C, H, W], sum over Batch
-            sum_.index_add_(dim=0, index=label, source=X)    # [K, C, H, W]
-            cnt_ = torch.bincount(label)
-            avg_feat = sum_/cnt_[:, None, None, None]        # [K, C, H, W]  class-wise mean feat
-            mean = avg_feat.mean(dim=(0, 2, 3), keepdim=True)  # channel mean (equal weight for all classes)
+            sum_ = torch.zeros((num_classes, C, H, W), dtype=X.dtype, device=X.device)
+            cnt_ = torch.zeros(num_classes, dtype=torch.float32, device=X.device)
 
+            for lbl in range(num_classes):
+                mask = label == lbl
+                if mask.any():
+                    sum_[lbl] = X[mask].sum(dim=0)
+                    cnt_[lbl] = mask.sum()
+
+            mean = (sum_ / cnt_[:, None, None, None]).mean(dim=(0, 2, 3), keepdim=True)
             var = ((X - mean) ** 2).mean(dim=(0, 2, 3), keepdim=True)
 
-        # In training mode, the current mean and variance are used
         X_hat = (X - mean) / torch.sqrt(var + eps)
-        # Update the mean and variance using moving average
-        moving_mean = (1.0 - momentum) * moving_mean + momentum * mean
-        moving_var = (1.0 - momentum) * moving_var + momentum * var
-    Y = gamma * X_hat + beta  # Scale and shift
+        moving_mean = (1 - momentum) * moving_mean + momentum * mean
+        moving_var = (1 - momentum) * moving_var + momentum * var
+
+    Y = gamma * X_hat + beta
     return Y, moving_mean.data, moving_var.data
+
+
+
 
 
 def get_lambda(alpha=1.0):

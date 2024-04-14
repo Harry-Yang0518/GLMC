@@ -27,7 +27,7 @@ source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
 python main_bn.py --batch_size 256 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 \
 --epochs 200 --loss ${LOSS} --feat none \
---resample_weighting 0 --mixup -1 --mixup_alpha 1 --store_name batch2d_IR_${IB}_${LOSS}_noetf_2minority "
+--resample_weighting 0 --store_name classbatchn_IR_${IB}_${LOSS}_noetf "
 
 # python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 --imbalance_type step --lr 0.01 --seed 2021 --epochs 200 --loss ce --bn_type cbn
 

@@ -291,6 +291,7 @@ class ResNet_modify(nn.Module):
         return BNSequential(*layers)
 
     def forward(self, x, label, ret=None):
+        #x = x.float()  
         out = self.cbr(x, label)
         out = self.layer1(out, label)
         out = self.layer2(out, label)

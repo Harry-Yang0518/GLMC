@@ -90,89 +90,215 @@ class Trainer_bn(object):
         elif self.args.loss == 'arcf' or self.args.loss == 'arcm':
             self.criterion = CombinedMarginLoss(64, self.args.margins[0], self.args.margins[1], self.args.margins[2])
 
+
+
+    # def train_one_epoch(self):
+    #     self.model.train()
+    #     losses = AverageMeter('Loss', ':.4e')
+    #     train_acc = AverageMeter('Train_acc', ':.4e')
+
+    #     train_loader = self.weighted_train_loader if self.args.resample_weighting > 0 else self.train_loader
+
+    #     for i, (inputs, targets) in enumerate(train_loader):
+    #         inputs, targets = inputs.to(self.device), targets.to(self.device)
+    #         output= self.model(inputs, targets)
+
+    #         # Only consider majority classes
+    #         majority_classes = torch.tensor([0, 1, 2, 3, 4], device=self.device)
+    #         majority_mask = torch.isin(targets, majority_classes)   
+
+    #         if majority_mask.any():
+    #             majority_inputs = inputs[majority_mask]
+    #             majority_targets = targets[majority_mask]
+    #             majority_output = output[majority_mask]
+
+    #             # Check if the outputs contain any NaN
+    #             if torch.isnan(majority_output).any():
+    #                 print(f"NaN detected in outputs at iteration {i}")
+    #                 continue
+
+    #             loss = self.criterion(majority_output, majority_targets)
+    #             if torch.isnan(loss):
+    #                 print(f"NaN detected in loss at iteration {i}")
+    #                 continue
+
+    #             losses.update(loss.item(), majority_inputs.size(0))
+    #             train_acc.update((majority_output.argmax(1) == majority_targets).float().mean().item(), majority_inputs.size(0))
+
+    #             self.optimizer.zero_grad()
+    #             loss.backward()
+    #             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)  # Gradient clipping
+    #             self.optimizer.step()
+
+    #     return losses, train_acc
+
     def train_one_epoch(self):
 
-        # switch to train mode
-        self.model.train()
-        losses = AverageMeter('Loss', ':.4e')
-        train_acc = AverageMeter('Train_acc', ':.4e')
+            # switch to train mode
+            self.model.train()
+            losses = AverageMeter('Loss', ':.4e')
+            train_acc = AverageMeter('Train_acc', ':.4e')
 
-        if self.args.resample_weighting > 0:
-            train_loader = self.weighted_train_loader
-        else:
-            train_loader = self.train_loader
-        
-        for i, (inputs, targets) in enumerate(train_loader):
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-            if self.args.aug == 'cm' or self.args.aug == 'cutmix':     # cutmix augmentation within the mini-batch
-                cutmix = v2.CutMix(num_classes=self.args.num_classes)
-                inputs, reweighted_targets = cutmix(inputs, targets)   # reweighted target will be [B, K]
-
-            if self.args.mixup >= 0:
-                output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
-                                                                         mixup_alpha=self.args.mixup_alpha)
+            if self.args.resample_weighting > 0:
+                train_loader = self.weighted_train_loader
             else:
-                freq = torch.bincount(targets, minlength=self.args.num_classes)
-                cls_idx = torch.where(freq==0)[0]
-                bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
-                bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+                train_loader = self.train_loader
+            
+            for i, (inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
 
-                all_inputs = torch.cat([inputs, bn_inputs])
-                all_targets = torch.cat([targets, bn_targets])
+                if self.args.aug == 'cm' or self.args.aug == 'cutmix':     # cutmix augmentation within the mini-batch
+                    cutmix = v2.CutMix(num_classes=self.args.num_classes)
+                    inputs, reweighted_targets = cutmix(inputs, targets)   # reweighted target will be [B, K]
 
-                output_all, h_all = self.model(all_inputs, all_targets, ret='of')
-                output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
-
-            # update the img_bank with current batch
-            for k in self.queue:
-                cls_idx = torch.where(targets == k)[0]
-                if len(cls_idx) == 0:
-                    continue
+                if self.args.mixup >= 0:
+                    output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
+                                                                             mixup_alpha=self.args.mixup_alpha)
                 else:
-                    ptr = self.queue_ptr[k]
-                    num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
+                    freq = torch.bincount(targets, minlength=self.args.num_classes)
+                    cls_idx = torch.where(freq==0)[0]
+                    bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+                    bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
 
-                    # Dynamically adjust the shape of the source tensor to match the destination
-                    self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
+                    all_inputs = torch.cat([inputs, bn_inputs])
+                    all_targets = torch.cat([targets, bn_targets])
 
-                    # Safely update the pointer with wrap-around
-                    self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
+                    output_all, h_all = self.model(all_inputs, all_targets, ret='of')
+                    output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
+
+                # update the img_bank with current batch
+                for k in self.queue:
+                    cls_idx = torch.where(targets == k)[0]
+                    if len(cls_idx) == 0:
+                        continue
+                    else:
+                        ptr = self.queue_ptr[k]
+                        num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
+
+                        # Dynamically adjust the shape of the source tensor to match the destination
+                        self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
+
+                        # Safely update the pointer with wrap-around
+                        self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
 
 
-            # ==== update loss and acc
-            train_acc.update(torch.sum(output.argmax(dim=-1) == targets).item() / targets.size(0),
-                             targets.size(0)
-                             )
-            loss = self.criterion(output, reweighted_targets if self.args.mixup >= 0 or self.args.aug == 'cm' or self.args.aug == 'cutmix' else targets)
-            losses.update(loss.item(), targets.size(0))
 
-            # ==== gradient update
-            if self.args.loss != 'hce':
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
 
-            elif self.args.loss == 'hce':
+                    #Only consider majority classes
+                majority_classes = torch.tensor([0, 1, 2, 3, 4], device=self.device)
+                majority_mask = torch.isin(targets, majority_classes)   
 
-                # gradient of L wrt. b
-                beta = self.per_cls_weights[targets]  # [B]
-                P = nn.Softmax(dim=-1)(output.detach())  # [B, K]
-                Y = torch.eye(self.args.num_classes, device=targets.device)[targets]  # [B, K]
-                b_grad = beta.unsqueeze(1) * (P - Y)  # [B, K]
-                b_grad = torch.sum(b_grad, dim=0) / len(b_grad)
+                if majority_mask.any():
+                    majority_inputs = inputs[majority_mask]
+                    majority_targets = targets[majority_mask]
+                    majority_output = output[majority_mask]
 
-                # gradient of L wrt. W
-                weighted_P_Y = (P.detach() - Y) * beta.unsqueeze(1)  # [B, K]
-                W_grad = torch.einsum('db, bk->dk', h.detach().T, weighted_P_Y) / len(output)  # [D, K]
-                W_grad = W_grad.T  # [K, D]
+                    # Check if the outputs contain any NaN
+                    if torch.isnan(majority_output).any():
+                        print(f"NaN detected in outputs at iteration {i}")
+                        continue
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.model.fc_cb.bias.grad = b_grad
-                self.model.fc_cb.weight.grad = W_grad
-                self.optimizer.step()
-        return losses, train_acc
+                    loss = self.criterion(majority_output, majority_targets)
+                    if torch.isnan(loss):
+                        print(f"NaN detected in loss at iteration {i}")
+                        continue
+
+                    losses.update(loss.item(), majority_inputs.size(0))
+                    train_acc.update((majority_output.argmax(1) == majority_targets).float().mean().item(), majority_inputs.size(0))
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)  # Gradient clipping
+                    self.optimizer.step()
+
+            return losses, train_acc
+
+
+    # def train_one_epoch(self):
+
+    #     # switch to train mode
+    #     self.model.train()
+    #     losses = AverageMeter('Loss', ':.4e')
+    #     train_acc = AverageMeter('Train_acc', ':.4e')
+
+    #     if self.args.resample_weighting > 0:
+    #         train_loader = self.weighted_train_loader
+    #     else:
+    #         train_loader = self.train_loader
+        
+    #     for i, (inputs, targets) in enumerate(train_loader):
+    #         inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+    #         if self.args.aug == 'cm' or self.args.aug == 'cutmix':     # cutmix augmentation within the mini-batch
+    #             cutmix = v2.CutMix(num_classes=self.args.num_classes)
+    #             inputs, reweighted_targets = cutmix(inputs, targets)   # reweighted target will be [B, K]
+
+    #         if self.args.mixup >= 0:
+    #             output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
+    #                                                                      mixup_alpha=self.args.mixup_alpha)
+    #         else:
+    #             freq = torch.bincount(targets, minlength=self.args.num_classes)
+    #             cls_idx = torch.where(freq==0)[0]
+    #             bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+    #             bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+
+    #             all_inputs = torch.cat([inputs, bn_inputs])
+    #             all_targets = torch.cat([targets, bn_targets])
+
+    #             output_all, h_all = self.model(all_inputs, all_targets, ret='of')
+    #             output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
+
+    #         # update the img_bank with current batch
+    #         for k in self.queue:
+    #             cls_idx = torch.where(targets == k)[0]
+    #             if len(cls_idx) == 0:
+    #                 continue
+    #             else:
+    #                 ptr = self.queue_ptr[k]
+    #                 num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
+
+    #                 # Dynamically adjust the shape of the source tensor to match the destination
+    #                 self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
+
+    #                 # Safely update the pointer with wrap-around
+    #                 self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
+
+
+
+
+    #         # ==== update loss and acc
+    #         train_acc.update(torch.sum(output.argmax(dim=-1) == targets).item() / targets.size(0),
+    #                          targets.size(0)
+    #                          )
+    #         loss = self.criterion(output, reweighted_targets if self.args.mixup >= 0 or self.args.aug == 'cm' or self.args.aug == 'cutmix' else targets)
+    #         losses.update(loss.item(), targets.size(0))
+
+    #         # ==== gradient update
+    #         if self.args.loss != 'hce':
+    #             self.optimizer.zero_grad()
+    #             loss.backward()
+    #             self.optimizer.step()
+
+    #         elif self.args.loss == 'hce':
+
+    #             # gradient of L wrt. b
+    #             beta = self.per_cls_weights[targets]  # [B]
+    #             P = nn.Softmax(dim=-1)(output.detach())  # [B, K]
+    #             Y = torch.eye(self.args.num_classes, device=targets.device)[targets]  # [B, K]
+    #             b_grad = beta.unsqueeze(1) * (P - Y)  # [B, K]
+    #             b_grad = torch.sum(b_grad, dim=0) / len(b_grad)
+
+    #             # gradient of L wrt. W
+    #             weighted_P_Y = (P.detach() - Y) * beta.unsqueeze(1)  # [B, K]
+    #             W_grad = torch.einsum('db, bk->dk', h.detach().T, weighted_P_Y) / len(output)  # [D, K]
+    #             W_grad = W_grad.T  # [K, D]
+
+    #             self.optimizer.zero_grad()
+    #             loss.backward()
+    #             self.model.fc_cb.bias.grad = b_grad
+    #             self.model.fc_cb.weight.grad = W_grad
+    #             self.optimizer.step()
+    #     return losses, train_acc
 
     def train_base(self):
         best_acc1 = 0
