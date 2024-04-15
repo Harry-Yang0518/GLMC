@@ -133,85 +133,87 @@ class Trainer_bn(object):
     #     return losses, train_acc
 
     def train_one_epoch(self):
+        # switch to train mode
+        self.model.train()
+        losses = AverageMeter('Loss', ':.4e')
+        train_acc = AverageMeter('Train_acc', ':.4e')
 
-            # switch to train mode
-            self.model.train()
-            losses = AverageMeter('Loss', ':.4e')
-            train_acc = AverageMeter('Train_acc', ':.4e')
+        if self.args.resample_weighting > 0:
+            train_loader = self.weighted_train_loader
+        else:
+            train_loader = self.train_loader
 
-            if self.args.resample_weighting > 0:
-                train_loader = self.weighted_train_loader
+        for i, (inputs, targets) in enumerate(train_loader):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+            if self.args.aug == 'cm' or self.args.aug == 'cutmix':  # cutmix augmentation within the mini-batch
+                cutmix = v2.CutMix(num_classes=self.args.num_classes)
+                inputs, reweighted_targets = cutmix(inputs, targets)  # reweighted target will be [B, K]
+
+            if self.args.mixup >= 0:
+                output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
+                                                                        mixup_alpha=self.args.mixup_alpha)
             else:
-                train_loader = self.train_loader
-            
-            for i, (inputs, targets) in enumerate(train_loader):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                freq = torch.bincount(targets, minlength=self.args.num_classes)
+                cls_idx = torch.where(freq == 0)[0]
 
-                if self.args.aug == 'cm' or self.args.aug == 'cutmix':     # cutmix augmentation within the mini-batch
-                    cutmix = v2.CutMix(num_classes=self.args.num_classes)
-                    inputs, reweighted_targets = cutmix(inputs, targets)   # reweighted target will be [B, K]
-
-                if self.args.mixup >= 0:
-                    output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
-                                                                             mixup_alpha=self.args.mixup_alpha)
-                else:
-                    freq = torch.bincount(targets, minlength=self.args.num_classes)
-                    cls_idx = torch.where(freq==0)[0]
+                if cls_idx.nelement() != 0:
                     bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
                     bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
 
                     all_inputs = torch.cat([inputs, bn_inputs])
                     all_targets = torch.cat([targets, bn_targets])
+                else:
+                    all_inputs = inputs
+                    all_targets = targets
 
-                    output_all, h_all = self.model(all_inputs, all_targets, ret='of')
-                    output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
+                output_all, h_all = self.model(all_inputs, all_targets, ret='of')
+                output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
 
-                # update the img_bank with current batch
-                for k in self.queue:
-                    cls_idx = torch.where(targets == k)[0]
-                    if len(cls_idx) == 0:
-                        continue
-                    else:
-                        ptr = self.queue_ptr[k]
-                        num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
+            # update the img_bank with current batch
+            for k in self.queue:
+                cls_idx = torch.where(targets == k)[0]
+                if len(cls_idx) == 0:
+                    continue
+                else:
+                    ptr = self.queue_ptr[k]
+                    num_cls = min(len(self.queue[k]) - ptr, len(cls_idx))  # Ensure we do not exceed buffer or available indices
 
-                        # Dynamically adjust the shape of the source tensor to match the destination
-                        self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
+                    # Dynamically adjust the shape of the source tensor to match the destination
+                    self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
 
-                        # Safely update the pointer with wrap-around
-                        self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
+                    # Safely update the pointer with wrap-around
+                    self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])
 
+            # Only consider majority classes
+            majority_classes = torch.tensor([0, 1, 2, 3, 4], device=self.device)
+            majority_mask = torch.isin(targets, majority_classes)
 
+            if majority_mask.any():
+                majority_inputs = inputs[majority_mask]
+                majority_targets = targets[majority_mask]
+                majority_output = output[majority_mask]
 
+                # Check if the outputs contain any NaN
+                if torch.isnan(majority_output).any():
+                    print(f"NaN detected in outputs at iteration {i}")
+                    continue
 
-                    #Only consider majority classes
-                majority_classes = torch.tensor([0, 1, 2, 3, 4], device=self.device)
-                majority_mask = torch.isin(targets, majority_classes)   
+                loss = self.criterion(majority_output, majority_targets)
+                if torch.isnan(loss):
+                    print(f"NaN detected in loss at iteration {i}")
+                    continue
 
-                if majority_mask.any():
-                    majority_inputs = inputs[majority_mask]
-                    majority_targets = targets[majority_mask]
-                    majority_output = output[majority_mask]
+                losses.update(loss.item(), majority_inputs.size(0))
+                train_acc.update((majority_output.argmax(1) == majority_targets).float().mean().item(), majority_inputs.size(0))
 
-                    # Check if the outputs contain any NaN
-                    if torch.isnan(majority_output).any():
-                        print(f"NaN detected in outputs at iteration {i}")
-                        continue
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)  # Gradient clipping
+                self.optimizer.step()
 
-                    loss = self.criterion(majority_output, majority_targets)
-                    if torch.isnan(loss):
-                        print(f"NaN detected in loss at iteration {i}")
-                        continue
+        return losses, train_acc
 
-                    losses.update(loss.item(), majority_inputs.size(0))
-                    train_acc.update((majority_output.argmax(1) == majority_targets).float().mean().item(), majority_inputs.size(0))
-
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)  # Gradient clipping
-                    self.optimizer.step()
-
-            return losses, train_acc
 
 
     # def train_one_epoch(self):

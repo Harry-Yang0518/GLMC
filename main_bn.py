@@ -58,7 +58,7 @@ def main(args):
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
     os.environ["WANDB_MODE"] = "online" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
-    wandb.init(project="cbn",name=args.store_name)
+    wandb.init(project="cbn2",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 
@@ -168,7 +168,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--norm', default=False, action='store_true')  # none|nn1|nn2
-    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn
+    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn, cbn
     parser.add_argument('--bias', default=False, action='store_true')  # none|nn1|nn2
     parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge
     parser.add_argument('--margins', type=str, default='1.0_0.5_0.0')

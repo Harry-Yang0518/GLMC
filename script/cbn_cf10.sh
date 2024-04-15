@@ -25,9 +25,12 @@ singularity exec --nv \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
-python main_bn.py --batch_size 256 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 \
---epochs 200 --loss ${LOSS} --feat none \
---resample_weighting 0 --store_name classbatchn_IR_${IB}_${LOSS}_noetf "
+python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 --imbalance_type step --lr 0.01 --seed 2021 --epochs 200 --loss ce --bn_type bn \
+--store_name batchn_IR_${IB}_${LOSS}_noetf "
 
-# python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 --imbalance_type step --lr 0.01 --seed 2021 --epochs 200 --loss ce --bn_type cbn
+# python main_bn.py --batch_size 64 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 
+# --epochs 200 --loss ${LOSS} --feat none --bn_type bn 
+# --resample_weighting 0 --store_name batchn_IR_${IB}_${LOSS}_noetf "
+
+# python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 --imbalance_type step --lr 0.01 --seed 2021 --epochs 200 --loss ce --bn_type bn
 
