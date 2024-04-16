@@ -120,6 +120,11 @@ def get_transform(dataset, aug=None):
         elif dataset == "cifar100":
             mean = (0.4914, 0.4822, 0.4465)
             std = (0.2023, 0.1994, 0.2010)
+        # Ensure ToTensor() is included in all transformations
+        base_transform = [transforms.ToTensor(), transforms.Normalize(mean, std)]
+        transform_train = transforms.Compose(base_transform)
+        transform_val = transforms.Compose(base_transform)
+
         if (aug is None) or aug == 'null':
             transform_train = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
         elif aug == 'flip' or aug == 'cutmix' or aug=='cm':

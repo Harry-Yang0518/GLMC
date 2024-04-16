@@ -1,5 +1,6 @@
 import sys
 import time
+import os   
 import wandb
 import logging
 import datetime
@@ -17,7 +18,7 @@ from imbalance_data.data import get_dataset
 
 best_acc1 = 0
 
-
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 def get_model(args):
     if args.dataset == "ImageNet-LT" or args.dataset == "iNaturelist2018":
         print("=> creating model '{}'".format('resnext50_32x4d'))
@@ -54,16 +55,13 @@ def main(args):
         cudnn.deterministic = True
         cudnn.benchmark = True
 
-    os.environ["WANDB_API_KEY"] = "0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee"
+    os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
     os.environ["WANDB_MODE"] = "online" #"dryrun"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/lg154/sseg/.cache/wandb"
-    os.environ["WANDB_CONFIG_DIR"] = "/scratch/lg154/sseg/.config/wandb"
-    wandb.login(key='0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee')
-    wandb.init(project='lg3_'+args.dataset,
-               name= args.store_name.split('/')[-1]
-               )
+    wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
+    wandb.init(project="cbn4",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
+
 
 
 def main_worker(args):
@@ -96,15 +94,26 @@ def main_worker(args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     # ================= Data loading code =================
-    train_dataset, val_dataset = get_dataset(args)
+    train_dataset, val_dataset, majority_subset, minority_subset = get_dataset(args)
+    
     # train_dataset_minority = copy(train_dataset)
     # change train_dataset_minority.data to keep the minory class only
     num_classes = len(np.unique(train_dataset.targets))
     img_bank = {k: None for k in range(num_classes)}
     assert num_classes == args.num_classes
 
-    # ================= Default Loader
+    # ================= Modified Loader
     train_sampler = None
+    # We will now convert the majority and minority subsets into PyTorch DataLoader
+    def create_subset_loader(subset, batch_size, num_workers, shuffle=True):
+        dataset = torch.utils.data.TensorDataset(torch.tensor(subset['x']), torch.tensor(subset['y']))
+        return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
+                                        num_workers=num_workers, persistent_workers=True, pin_memory=True)
+
+    # Create data loaders for majority and minority subsets
+    majority_loader = create_subset_loader(majority_subset, args.batch_size, args.workers, shuffle=True)
+    minority_loader = create_subset_loader(minority_subset, args.batch_size, args.workers, shuffle=True)
+
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                shuffle=(train_sampler is None), num_workers=args.workers,
                                                persistent_workers=True, pin_memory=True, sampler=train_sampler)
@@ -129,7 +138,7 @@ def main_worker(args):
 
     start_time = time.time()
     print("Training started!")
-    trainer = Trainer_bn(args, model=model, train_loader=train_loader, val_loader=val_loader,
+    trainer = Trainer_bn(args, model=model, train_loader=train_loader, majority_loader=majority_loader, val_loader=val_loader,
                       weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
     trainer.train_base()
     end_time = time.time()
@@ -140,7 +149,7 @@ if __name__ == '__main__':
     # train set
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
-    parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
+    parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--imbalance_rate', default=1.0, type=float, help='imbalance factor')
@@ -159,7 +168,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--norm', default=False, action='store_true')  # none|nn1|nn2
-    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn
+    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn, cbn
     parser.add_argument('--bias', default=False, action='store_true')  # none|nn1|nn2
     parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge
     parser.add_argument('--margins', type=str, default='1.0_0.5_0.0')
