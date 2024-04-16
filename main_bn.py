@@ -56,7 +56,7 @@ def main(args):
         cudnn.benchmark = True
 
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
-    os.environ["WANDB_MODE"] = "online" #"dryrun"
+    os.environ["WANDB_MODE"] = "dryrun" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
     wandb.init(project="cbn4",name=args.store_name)
     wandb.config.update(args)
@@ -138,7 +138,7 @@ def main_worker(args):
 
     start_time = time.time()
     print("Training started!")
-    trainer = Trainer_bn(args, model=model, train_loader=train_loader, majority_loader=majority_loader, val_loader=val_loader,
+    trainer = Trainer_bn(args, model=model, train_loader=train_loader, val_loader=val_loader,
                       weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
     trainer.train_base()
     end_time = time.time()
