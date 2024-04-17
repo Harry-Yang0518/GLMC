@@ -46,6 +46,7 @@ def analysis(model, loader, args):
         for data, target in loader:
             data, target = data.to(device), target.to(device)
             logits, feats = model(data, target, ret='of')
+            logits, feats = model(data, target, ret='of')
             logits_list.append(logits)
             labels_list.append(target)
             feats_list.append(feats)
@@ -196,71 +197,42 @@ def analysis(model, loader, args):
     }
 
 
-def analysis1(model, loader, args):
+def analysis_feat(labels, feats, logits, args):
+    # analysis without extracting features
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     N = [0 for _ in range(args.num_classes)]  # within class sample size
     mean = [0 for _ in range(args.num_classes)]
     Sw_cls = [0 for _ in range(args.num_classes)]
-    loss = 0
-    n_correct = 0
 
-    model.eval()
-    criterion_summed = torch.nn.CrossEntropyLoss(reduction='sum')
+    loss = torch.nn.CrossEntropyLoss(reduction='mean')(logits, labels).item()
+    acc = (logits.argmax(dim=-1) == labels).sum().item() / len(labels)
 
-    for computation in ['Mean', 'Cov']:
-        for batch_idx, (data, target) in enumerate(loader, start=1):
+    # ====== compute mean and var for each class
+    for c in range(args.num_classes):
+        idxs = (labels == c).nonzero(as_tuple=True)[0]
+        h_c = feats[idxs, :]  # [B, 512]
 
-            data, target = data.to(device), target.to(device)
+        N[c] = h_c.shape[0]
+        mean[c] = torch.sum(h_c, dim=0) / h_c.shape[0]  #  CHW
 
-            with torch.no_grad():
-                output, h = model(data, target, ret='of')  # [B, C], [B, 512]
-
-            for c in range(args.num_classes):
-                idxs = (target == c).nonzero(as_tuple=True)[0]
-                if len(idxs) == 0:  # If no class-c in this batch
-                    continue
-
-                h_c = h[idxs, :]  # [B, 512]
-
-                if computation == 'Mean':
-                    # update class means
-                    mean[c] += torch.sum(h_c, dim=0)  #  CHW
-                    N[c] += h_c.shape[0]
-
-                elif computation == 'Cov':
-                    # update within-class cov
-                    z = h_c - mean[c].unsqueeze(0)  # [B, 512]
-                    cov = torch.matmul(z.unsqueeze(-1), z.unsqueeze(1))   # [B 512 1] [B 1 512] -> [B, 512, 512]
-                    Sw_cls[c] += torch.sum(cov, dim=0)  # [512, 512]
-
-            # during calculation of class cov, calculate loss
-            if computation == 'Cov':
-                loss += criterion_summed(output, target).item()
-
-                # 1) network's accuracy
-                net_pred = torch.argmax(output, dim=1)
-                n_correct += sum(net_pred == target).item()
-
-        if computation == 'Mean':
-            for c in range(args.num_classes):
-                mean[c] /= N[c]
-                M = torch.stack(mean).T
-        elif computation == 'Cov':
-            loss /= sum(N)
-            acc = n_correct/sum(N)
-            Sw = sum(Sw_cls) / sum(N)
-            for c in range(args.num_classes):
-                Sw_cls[c] = Sw_cls[c] / N[c]
+        # update within-class cov
+        z = h_c - mean[c].unsqueeze(0)  # [B, 512]
+        cov_c = torch.matmul(z.unsqueeze(-1), z.unsqueeze(1))  # [B 512 1] [B 1 512] -> [B, 512, 512]
+        Sw_cls[c] = torch.sum(cov_c, dim=0)  # [512, 512]
 
     # global mean
+    M = torch.stack(mean).T
     muG = torch.mean(M, dim=1, keepdim=True)  # [512, C]
+    Sw = sum(Sw_cls) / sum(N)
+    for c in range(args.num_classes):
+        Sw_cls[c] = Sw_cls[c] / N[c]
 
     # between-class covariance
     M_ = M - muG  # [512, C]
     Sb = torch.matmul(M_, M_.T) / args.num_classes
 
-    # tr{Sw Sb^-1}
+    # ============ NC1: tr{Sw Sb^-1}
     Sw = Sw.cpu().numpy()
     Sb = Sb.cpu().numpy()
     eigvec, eigval, _ = svds(Sb, k=args.num_classes - 1)
@@ -274,26 +246,13 @@ def analysis1(model, loader, args):
     if has_fc_cb:
         W = model.fc_cb.weight.detach().T  # [512, C]
     else:
-        W = model.classifier.weight.detach().T
+        W = model.fc.weight.detach().T
     M_norms = torch.norm(M_, dim=0)  # [C]
-    W_norms = torch.norm(W , dim=0)  # [C]
+    W_norms = torch.norm(W, dim=0)  # [C]
 
-    # == NC2.1
+    # == NC2.1 Norm
     norm_M_CoV = (torch.std(M_norms) / torch.mean(M_norms)).item()
     norm_W_CoV = (torch.std(W_norms) / torch.mean(W_norms)).item()
-
-    # angle between W
-    W_nomarlized = W / W_norms  # [512, C]
-    w_cos = (W_nomarlized.T @ W_nomarlized).cpu().numpy()  # [C, D] [D, C] -> [C, C]
-    w_cos_avg = (w_cos.sum(1) - np.diag(w_cos)) / (w_cos.shape[1] - 1)
-
-    # angle between H
-    M_normalized = M_ / M_norms  # [512, C]
-    h_cos = (M_normalized.T @ M_normalized).cpu().numpy()
-    h_cos_avg = (h_cos.sum(1) - np.diag(h_cos)) / (h_cos.shape[1] - 1)
-
-    # angle between W and H
-    wh_cos = torch.sum(W_nomarlized * M_normalized, dim=0).cpu().numpy()  # [C]
 
     # == NC2.2
     def coherence(V):
@@ -304,6 +263,20 @@ def analysis1(model, loader, args):
 
     cos_M = coherence(M_ / M_norms)  # [D, C]
     cos_W = coherence(W / W_norms)
+
+    # angle between W
+    W_nomarlized = W / W_norms  # [512, C]
+    w_cos = (W_nomarlized.T @ W_nomarlized).cpu().numpy()  # [C, D] [D, C] -> [C, C]
+    w_cos_avg = (w_cos.sum(1) - np.diag(w_cos)) / (w_cos.shape[1] - 1)  # [C]
+
+    # angle between H
+    M_normalized = M_ / M_norms  # [512, C]
+    h_cos = (M_normalized.T @ M_normalized).cpu().numpy()
+    h_cos_avg = (h_cos.sum(1) - np.diag(h_cos)) / (h_cos.shape[1] - 1)
+
+    # angle between W and H
+    wh_cos = (W_nomarlized.T @ M_normalized).cpu().numpy()
+    wh_cos_avg = np.mean(np.diag(wh_cos))
 
     # =========== NC2
     nc2_h = compute_ETF(M_.T, device)
@@ -316,6 +289,27 @@ def analysis1(model, loader, args):
 
     # =========== NC3 (all losses are equal paper)
     nc3 = compute_W_H_relation(W.T, M_, device)
+
+    # =========== for unbalanced dataset:
+    if args.imbalance_type == 'step':
+        w_mnorm1 = np.mean(W_norms[:args.num_classes // 2].cpu().numpy())
+        w_mnorm2 = np.mean(W_norms[args.num_classes // 2:].cpu().numpy())
+        h_mnorm1 = np.mean(M_norms[:args.num_classes // 2].cpu().numpy())
+        h_mnorm2 = np.mean(M_norms[args.num_classes // 2:].cpu().numpy())
+
+        w_cos1_ = w_cos[:args.num_classes // 2, :args.num_classes // 2]
+        w_cos1 = (w_cos1_.sum(1) - np.diag(w_cos1_)) / (w_cos1_.shape[1] - 1)
+        w_cos2_ = w_cos[args.num_classes // 2:, args.num_classes // 2:]
+        w_cos2 = (w_cos2_.sum(1) - np.diag(w_cos2_)) / (w_cos2_.shape[1] - 1)
+        w_cos3_ = w_cos[:args.num_classes // 2, args.num_classes // 2:]
+        w_cos3 = w_cos3_.sum(1) / w_cos3_.shape[1]
+
+        h_cos1_ = h_cos[:args.num_classes // 2, :args.num_classes // 2]
+        h_cos1 = (h_cos1_.sum(1) - np.diag(h_cos1_)) / (h_cos1_.shape[1] - 1)
+        h_cos2_ = h_cos[args.num_classes // 2:, args.num_classes // 2:]
+        h_cos2 = (h_cos2_.sum(1) - np.diag(h_cos2_)) / (h_cos2_.shape[1] - 1)
+        h_cos3_ = h_cos[:args.num_classes // 2, args.num_classes // 2:]
+        h_cos3 = h_cos3_.sum(1) / h_cos3_.shape[1]
 
     return {
         "loss": loss,
@@ -331,6 +325,7 @@ def analysis1(model, loader, args):
         "h_cos": h_cos,
         "h_cos_avg": h_cos_avg,
         "wh_cos": wh_cos,
+        "wh_cos_avg": wh_cos_avg,
         "nc21_h": norm_M_CoV,
         "nc21_w": norm_W_CoV,
         "nc22_h": cos_M,
@@ -338,6 +333,16 @@ def analysis1(model, loader, args):
         "nc2_h": nc2_h,
         "nc2_w": nc2_w,
         "nc3": nc3,
-        "nc3_1": W_M_dist
+        "nc3_d": W_M_dist,
+        "w_mnorm1": w_mnorm1 if args.imbalance_type == 'step' else 0,
+        "w_mnorm2": w_mnorm2 if args.imbalance_type == 'step' else 0,
+        "h_mnorm1": h_mnorm1 if args.imbalance_type == 'step' else 0,
+        "h_mnorm2": h_mnorm2 if args.imbalance_type == 'step' else 0,
+        "w_cos1": np.mean(w_cos1) if args.imbalance_type == 'step' else 0,
+        "w_cos2": np.mean(w_cos2) if args.imbalance_type == 'step' else 0,
+        "w_cos3": np.mean(w_cos3) if args.imbalance_type == 'step' else 0,
+        "h_cos1": np.mean(h_cos1) if args.imbalance_type == 'step' else 0,
+        "h_cos2": np.mean(h_cos2) if args.imbalance_type == 'step' else 0,
+        "h_cos3": np.mean(h_cos3) if args.imbalance_type == 'step' else 0,
     }
 

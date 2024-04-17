@@ -12,7 +12,7 @@ from sklearn.metrics import confusion_matrix
 from utils import util
 from utils.util import *
 from utils.plot import plot_nc
-from utils.measure_nc import analysis
+from utils.measure_nc import analysis, analysis_feat
 from model.KNN_classifier import KNNClassifier
 from model.loss import CrossEntropyLabelSmooth, CDTLoss, LDTLoss, CombinedMarginLoss
 
@@ -134,6 +134,7 @@ class Trainer_bn(object):
                 else:
                     ptr = self.queue_ptr[k]
                     num_cls = min(len(self.queue[k]), len(cls_idx))                  
+                    num_cls = min(len(self.queue[k]), len(cls_idx))                  
 
                     # replace the keys at ptr (dequeue and enqueue)
                     if ptr + num_cls <= len(self.queue[k]):
@@ -141,7 +142,13 @@ class Trainer_bn(object):
                     else: 
                         self.queue[k][ptr:] = inputs[cls_idx][num_cls-(len(self.queue[k])-ptr):num_cls]
                         self.queue[k][:num_cls-(len(self.queue[k])-ptr)] = inputs[cls_idx][:num_cls-(len(self.queue[k])-ptr)]
+                    if ptr + num_cls <= len(self.queue[k]):
+                        self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
+                    else: 
+                        self.queue[k][ptr:] = inputs[cls_idx][num_cls-(len(self.queue[k])-ptr):num_cls]
+                        self.queue[k][:num_cls-(len(self.queue[k])-ptr)] = inputs[cls_idx][:num_cls-(len(self.queue[k])-ptr)]
                     self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])  # move pointer
+                    
                     
 
             # ==== update loss and acc
@@ -184,6 +191,7 @@ class Trainer_bn(object):
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
         wandb.watch(self.model, self.criterion, log="all", log_freq=10)
         train_nc = Graph_Vars()
+        val_nc = Graph_Vars()
 
         for epoch in range(self.args.start_epoch, self.args.epochs):
 
@@ -201,9 +209,44 @@ class Trainer_bn(object):
                       step=epoch + 1)
 
             # ============ evaluation ============
-            acc1 = self.validate(epoch=epoch)
-            if self.args.imbalance_type == 'step' and self.args.imbalance_rate < 1.0:
-                knn_acc1 = self.validate_knn(epoch=epoch)
+
+            # === validation using Nearest centroid
+            if self.args.imbalance_rate < 1.0:
+                cfeats = self.get_knncentroids()
+                self.knn_classifier = KNNClassifier(feat_dim=self.model.out_dim, num_classes=self.args.num_classes, feat_type='cl2n', dist_type='l2')
+                self.knn_classifier.update(cfeats)
+            else:
+                self.knn_classifier = None
+
+            val_targets, val_feats, val_logits, val_ncc_logits = self.get_feat_logits(self.val_loader)
+
+            # ==== regular validation
+            acc1, acc5 = accuracy(val_logits, val_targets, topk=(1, 5))
+            cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(), val_logits.argmax(1).cpu().numpy())
+            self.log.info('---->EPOCH {} Val: Prec@1 {:.3f} Prec@5 {:.3f}'.format(epoch, acc1, acc5))
+            self.log.info("many acc {:.2f}, med acc {:.2f}, few acc {:.2f}".format(many_acc, medium_acc, few_acc))
+
+            wandb.log({'val/val_acc1': acc1,
+                       'val/val_acc5': acc5,
+                       'val/val_many': many_acc,
+                       'val/val_medium': medium_acc,
+                       'val/val_few': few_acc},
+                      step=epoch + 1)
+
+            # === validation using Nearest centroid classifier
+            if self.args.imbalance_rate < 1.0:
+                acc1, acc5 = accuracy(val_ncc_logits, val_targets, topk=(1, 5))
+                cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(),
+                                                                            val_ncc_logits.argmax(1).cpu().numpy())
+                self.log.info('---->EPOCH {} NCC Val: Prec@1 {:.3f} Prec@5 {:.3f}'.format(epoch, acc1, acc5))
+                self.log.info("many acc {:.2f}, med acc {:.2f}, few acc {:.2f}".format(many_acc, medium_acc, few_acc))
+
+                wandb.log({'knn_val/val_acc1': acc1,
+                           'knn_val/val_acc5': acc5,
+                           'knn_val/val_many': many_acc,
+                           'knn_val/val_medium': medium_acc,
+                           'knn_val/val_few': few_acc},
+                          step=epoch + 1)
 
             if self.args.dataset == 'ImageNet-LT' or self.args.dataset == 'iNaturelist2018':
                 self.paco_adjust_learning_rate(self.optimizer, epoch, self.args)
@@ -214,11 +257,9 @@ class Trainer_bn(object):
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
             best_acc1 = max(acc1, best_acc1)
-            save_checkpoint(self.args, {
-                'epoch': epoch + 1,
-                'state_dict': self.model.state_dict(),
-                'best_acc1': best_acc1,
-            }, is_best, epoch + 1)
+            save_checkpoint(self.args,
+                            {'epoch': epoch + 1, 'state_dict': self.model.state_dict(),'best_acc1': best_acc1,},
+                            is_best, epoch + 1)
 
             # # ============ Measure NC ============
             if self.args.debug > 0:
@@ -252,14 +293,25 @@ class Trainer_bn(object):
                                    'nc1/h_cos2': nc_dict['h_cos2'],
                                    'nc1/h_cos3': nc_dict['h_cos3']},
                                   step=epoch + 1)
+                    val_nc_dict = analysis_feat(val_targets, val_feats, val_logits, self.args)
+                    val_nc.load_dt(val_nc_dict, epoch=epoch + 1, lr=self.optimizer.param_groups[0]['lr'])
+                    wandb.log({'nc_val/loss': nc_dict['loss'],
+                               'nc_val/acc': nc_dict['acc'],
+                               'nc_val/nc1': nc_dict['nc1'],
+                               'nc_val/nc2h': nc_dict['nc2_h'],
+                               'nc_val/nc2w': nc_dict['nc2_w'],
+                               'nc_val/nc3': nc_dict['nc3'],
+                               'nc_val/nc3d': nc_dict['nc3_d'],
+                               },
+                              step=epoch + 1)
+
                     if (epoch + 1) % (self.args.debug * 5) == 0:
                         fig = plot_nc(nc_dict)
                         wandb.log({"chart": fig}, step=epoch + 1)
+                        fig_val = plot_nc(val_nc_dict)
+                        wandb.log({"chart_val": fig_val}, step=epoch + 1)
 
-                        filename = os.path.join(self.args.root_model, self.args.store_name, 'analysis{}.pkl'.format(epoch))
-                        with open(filename, 'wb') as f:
-                            pickle.dump(nc_dict, f)
-                        self.log.info('-- Has saved the NC analysis result/epoch{} to {}'.format(epoch + 1, filename))
+            self.model.train()
 
         self.log.info('Best Testing Prec@1: {:.3f}\n'.format(best_acc1))
         # Store NC statistics
@@ -267,72 +319,38 @@ class Trainer_bn(object):
         with open(filename, 'wb') as f:
             pickle.dump(train_nc, f)
         self.log.info('-- Has saved Train NC analysis result to {}'.format(filename))
+        filename = os.path.join(self.args.root_model, self.args.store_name, 'val_nc.pkl')
+        with open(filename, 'wb') as f:
+            pickle.dump(val_nc, f)
+        self.log.info('-- Has saved Val NC analysis result to {}'.format(filename))
 
-    def validate(self, epoch=None):
-        # switch to evaluate mode
+
+    def get_feat_logits(self, loader):
         self.model.eval()
-        all_logits, all_targets = [], []
+        all_logits, all_ncc_logits, all_targets, all_feats = [], [], [], []
 
         with torch.no_grad():
-            for i, (input, target) in enumerate(self.val_loader):
+            for i, (input, target) in enumerate(loader):
                 input, target = input.to(self.device), target.to(self.device)
+                logit, feat = self.model(input, target, ret='of')  # pred from fc_bc
 
-                output = self.model(input, target, ret='o')
-                all_logits.append(output)
-                all_targets.append(target)
-            all_logits = torch.cat(all_logits)
-            all_targets = torch.cat(all_targets)
-            all_preds = all_logits.argmax(1)
-            # measure accuracy
-            acc1, acc5 = accuracy(all_logits, all_targets, topk=(1, 5))
-            cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(all_targets.cpu().numpy(), all_preds.cpu().numpy())
-            self.log.info(
-                '---->EPOCH{} Val: Prec@1 {:.3f} Prec@5 {:.3f}'.format(epoch, acc1, acc5))
-            self.log.info("many acc {:.2f}, med acc {:.2f}, few acc {:.2f}".format(many_acc, medium_acc, few_acc))
+                if self.knn_classifier is not None:
+                    ncc_logit = self.knn_classifier(feat)
+                    all_ncc_logits.append(ncc_logit)
 
-            wandb.log({'val/val_acc1': acc1,
-                       'val/val_acc5': acc5,
-                       'val/val_many': many_acc,
-                       'val/val_medium': medium_acc,
-                       'val/val_few': few_acc},
-                      step=epoch + 1)
-
-        return acc1
-
-    def validate_knn(self, epoch=None):
-        # switch to evaluate mode
-        self.model.eval()
-        all_logits, all_targets = [], []
-        cfeats = self.get_knncentroids()
-        self.knn_classifier = KNNClassifier(feat_dim=self.model.out_dim, num_classes=self.args.num_classes, feat_type='cl2n', dist_type='l2')
-        self.knn_classifier.update(cfeats)
-
-        with torch.no_grad():
-            for i, (input, target) in enumerate(self.val_loader):
-                input, target = input.to(self.device), target.to(self.device)
-                _, feats = self.model(input, target, ret='of')  # pred from fc_bc
-                logit = self.knn_classifier(feats)
                 all_logits.append(logit)
                 all_targets.append(target)
+                all_feats.append(feat)
+
             all_logits = torch.cat(all_logits)
             all_targets = torch.cat(all_targets)
-            all_preds = all_logits.argmax(1)
+            all_feats = torch.cat(all_feats)
 
-            # measure accuracy
-            acc1, acc5 = accuracy(all_logits, all_targets, topk=(1, 5))
-            cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(all_targets.cpu().numpy(), all_preds.cpu().numpy())
-            self.log.info(
-                '---->EPOCH{} Val: Prec@1 {:.3f} Prec@5 {:.3f}'.format(epoch, acc1, acc5))
-            self.log.info("many acc {:.2f}, med acc {:.2f}, few acc {:.2f}".format(many_acc, medium_acc, few_acc))
-
-            wandb.log({'knn_val/val_acc1': acc1,
-                       'knn_val/val_acc5': acc5,
-                       'knn_val/val_many': many_acc,
-                       'knn_val/val_medium': medium_acc,
-                       'knn_val/val_few': few_acc},
-                      step=epoch + 1)
-
-        return acc1
+            if self.knn_classifier is not None:
+                all_ncc_logits = torch.cat(all_ncc_logits)
+                return all_targets, all_feats, all_logits, all_ncc_logits
+            else:
+                return all_targets, all_feats, all_logits, []
 
     def calculate_acc(self, targets, preds):
         eps = np.finfo(np.float64).eps
@@ -387,6 +405,7 @@ class Trainer_bn(object):
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
 
                 # Calculate Features of each training data
+                _, feats = self.model(inputs, labels, ret='of')
                 _, feats = self.model(inputs, labels, ret='of')
                 feats_all.append(feats.cpu().numpy())
                 labels_all.append(labels.cpu().numpy())
