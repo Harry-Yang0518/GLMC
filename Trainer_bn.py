@@ -263,7 +263,7 @@ class Trainer_bn(object):
 
             # # ============ Measure NC ============
             if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0:
+                if (epoch + 1) % self.args.debug == 0: #debug
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
                         nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'], nc_dict['nc2_w'],
@@ -293,7 +293,7 @@ class Trainer_bn(object):
                                    'nc1/h_cos2': nc_dict['h_cos2'],
                                    'nc1/h_cos3': nc_dict['h_cos3']},
                                   step=epoch + 1)
-                    val_nc_dict = analysis_feat(val_targets, val_feats, val_logits, self.args)
+                    val_nc_dict = analysis_feat(self.model, val_targets, val_feats, val_logits, self.args)
                     val_nc.load_dt(val_nc_dict, epoch=epoch + 1, lr=self.optimizer.param_groups[0]['lr'])
                     wandb.log({'nc_val/loss': nc_dict['loss'],
                                'nc_val/acc': nc_dict['acc'],
@@ -442,6 +442,7 @@ class Trainer_bn(object):
                 'cl2ncs': cl2n_centers}
 
     def train(self):
+        #breakpoint()
         best_acc1 = 0
         for epoch in range(self.args.start_epoch, self.args.epochs):
             alpha = 1 - (epoch / self.args.epochs) ** 2  # balance loss terms
@@ -538,7 +539,7 @@ class Trainer_bn(object):
 
             # measure NC
             if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0:
+                if (epoch + 1) % self.args.debug == 0:  #debug
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f},\nWnorm:{}\nHnorm:{}\nWcos:{}\nWHcos:{}'.format(
                         nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'],

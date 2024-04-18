@@ -197,7 +197,8 @@ def analysis(model, loader, args):
     }
 
 
-def analysis_feat(labels, feats, logits, args):
+def analysis_feat(model, labels, feats, logits, args):
+    model.eval()
     # analysis without extracting features
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
