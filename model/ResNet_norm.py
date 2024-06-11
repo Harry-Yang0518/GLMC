@@ -245,33 +245,33 @@ class ResNet_modify(nn.Module):
 
         if self.args.feat == 'none' or self.args.feat == 'null':
             self.feature = BNSequential(nn.AdaptiveAvgPool2d((1, 1)),
-                                         nn.Flatten()
-                                         )
-        elif self.args.feat == 'b':
-            self.feature = BNSequential(norm_layer(self.out_dim),
-                                         nn.AdaptiveAvgPool2d((1, 1)),
-                                         nn.Flatten()
-                                         )
-        elif self.args.feat == 'bfb':                                              # still need to fix norm layer
-            self.feature = BNSequential(nn.BatchNorm2d(self.out_dim),
-                                        nn.Flatten(),
+                                        nn.Flatten()
+                                        )
+        elif self.args.feat == 'fb':                                              # still need to fix norm layer
+            self.feature = BNSequential(nn.Flatten(),
                                         nn.Linear(self.out_dim * 4 * 4, self.out_dim),
                                         nn.BatchNorm1d(self.out_dim)
                                         )
-        elif self.args.feat.startswith('bfb_d'):  # with_dropout
-            dropout_rate = float(self.args.feat.replace('bfb_d', ''))
-            self.feature = BNSequential(nn.BatchNorm2d(self.out_dim),
-                                         nn.Flatten(),
-                                         nn.Dropout(dropout_rate),
-                                         nn.Linear(self.out_dim * 4 * 4, self.out_dim),
-                                         nn.BatchNorm1d(self.out_dim)
-                                         )
+        elif self.args.feat.startswith('fb_d'):  # with_dropout
+            dropout_rate = float(self.args.feat.replace('fb_d', ''))
+            self.feature = BNSequential(nn.Flatten(),
+                                        nn.Dropout(dropout_rate),
+                                        nn.Linear(self.out_dim * 4 * 4, self.out_dim),
+                                        nn.BatchNorm1d(self.out_dim)
+                                        )
 
         if args.loss.endswith('m'):  # m for margin loss, linear layer which normalize both feature and weight w
             self.fc = LinearLayer(self.out_dim, self.num_classes)
         else:
             self.fc = nn.Linear(self.out_dim, self.num_classes, bias=self.args.bias)  # may need to change the bias
             self.apply(_weights_init)
+
+        if args.branch2:
+            self.fc_c = nn.Linear(self.out_dim, self.num_classes, bias=True)
+        if args.contrast:
+            hidden_dim = 128
+            self.projection_head = nn.Sequential(nn.Linear(self.out_dim, hidden_dim))
+            self.contrast_head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim))
 
         if self.etf_cls:
             weight = torch.sqrt(torch.tensor(self.num_classes / (self.num_classes - 1))) * (
@@ -304,6 +304,11 @@ class ResNet_modify(nn.Module):
 
         if ret == 'of':
             return out, feat
+        elif ret == 'bc' or ret == 'all':
+            out_c = self.fc_c(feat)        # branch with cross-entropy loss
+            z = self.projection_head(feat)
+            p = self.contrast_head(z)
+            return out, out_c, z, p
         else:
             return out
 

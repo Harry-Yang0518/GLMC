@@ -40,11 +40,11 @@ def batch_norm(X, label, gamma, beta, moving_mean, moving_var, eps, momentum):
         else:
             # When using a two-dimensional conv layer, calculate mean and variance on channel dimension (axis=1).
             batch_size, C, H, W = X.shape
-            sum_ = torch.zeros((torch.unique(label).size(0), C, H, W), dtype=X.dtype).to(X.device)   # [B, C, H, W], sum over Batch
+            sum_ = torch.zeros((torch.max(label).item()+1, C, H, W), dtype=X.dtype).to(X.device)   # [B, C, H, W], sum over Batch
             sum_.index_add_(dim=0, index=label, source=X)    # [K, C, H, W]
             cnt_ = torch.bincount(label)
-            avg_feat = sum_/cnt_[:, None, None, None]        # [K, C, H, W]  class-wise mean feat
-            mean = avg_feat.mean(dim=(0, 2, 3), keepdim=True)  # channel mean (equal weight for all classes)
+            avg_feat = sum_[cnt_>0]/cnt_[cnt_>0][:, None, None, None]    # [K, C, H, W]  class-wise mean feat
+            mean = avg_feat.mean(dim=(0, 2, 3), keepdim=True)            # channel mean (equal weight for all classes)
 
             var = ((X - mean) ** 2).mean(dim=(0, 2, 3), keepdim=True)
 

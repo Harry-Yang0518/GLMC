@@ -94,12 +94,8 @@ def main_worker(args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     # ================= Data loading code =================
-    train_dataset, val_dataset, majority_subset, minority_subset = get_dataset(args)
-    
-    # train_dataset_minority = copy(train_dataset)
-    # change train_dataset_minority.data to keep the minory class only
+    train_dataset, val_dataset = get_dataset(args)
     num_classes = len(np.unique(train_dataset.targets))
-    img_bank = {k: None for k in range(num_classes)}
     assert num_classes == args.num_classes
 
     # ================= Modified Loader
@@ -126,8 +122,7 @@ def main_worker(args):
         cls_num_list[label] += 1
     cls_num_list = np.array(cls_num_list)
 
-    cls_weight = 1.0 / (cls_num_list ** args.resample_weighting)
-    cls_weight = cls_weight / np.sum(cls_weight) * len(cls_num_list)
+    cls_weight = (np.max(cls_num_list) - cls_num_list)/cls_num_list
     samples_weight = np.array([cls_weight[t] for t in train_dataset.targets])
     samples_weight = torch.from_numpy(samples_weight)
     samples_weight = samples_weight.double()
@@ -151,6 +146,9 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
     parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
+    parser.add_argument('--branch2', default=False, action='store_true')                 # turn on
+    parser.add_argument('--contrast', default=False, action='store_true')  
+    
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--imbalance_rate', default=1.0, type=float, help='imbalance factor')
     parser.add_argument('--imbalance_type', default='null', type=str, help='imbalance type')
@@ -212,7 +210,7 @@ if __name__ == '__main__':
     file_name = args.store_name
     args.store_name = '{}_{}/{}/{}'.format(
         args.dataset, args.arch,
-        str(args.imbalance_rate),
+        args.imbalance_type + '_' + str(args.imbalance_rate),
         file_name
     )
 

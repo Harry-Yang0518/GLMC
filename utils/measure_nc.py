@@ -44,6 +44,9 @@ def analysis(model, loader, args):
     feats_list = []
     with torch.no_grad():
         for data, target in loader:
+            if isinstance(data, list): 
+                data = torch.cat(data, dim=0)
+                target = torch.cat((target, target), dim=0)
             data, target = data.to(device), target.to(device)
             if args.bn_type == 'cbn':
                 logits, feats = model(data, target, ret='of')
