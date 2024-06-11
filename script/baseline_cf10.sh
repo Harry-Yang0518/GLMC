@@ -10,9 +10,7 @@
 #SBATCH --partition=a100_1,a100_2,v100,rtx8000
 
 # job info
-IB=$1
-FNORM=$2
-ARCH=$3
+AUG=$1
 
 
 # Singularity path
@@ -22,9 +20,11 @@ sif_path=/scratch/lg154/cuda11.4.2-cudnn8.2.4-devel-ubuntu20.04.3.sif
 # start running
 singularity exec --nv \
 --overlay ${ext3_path}:ro \
---overlay /scratch/lg154/sseg/dataset/tiny-imagenet-200.sqf:ro \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
-python main_wb.py --dataset cifar100 -a ${ARCH} --imbalance_rate ${IB} --imbalance_type step --beta 0.5 --lr 0.01 --seed 2021 \
- --epochs 200 --loss ce --fnorm ${FNORM} --resample_weighting 0 --mixup -1 --mixup_alpha 1 --etf_cls --store_name ${ARCH}_etf_ib${IB}_${FNORM}
- " 
+cd /scratch/hy2611/GLMC/
+python main_wb.py --dataset cifar10 -a baseline_resnet32 --imbalance_type exp --imbalance_rate 0.01 --lr 0.01 \
+ --epochs 200 --loss ce --aug ${AUG} --store_name baseline_cf10_${AUG}
+"
+# python main_wb.py --dataset cifar10 -a baseline_resnet32 --imbalance_type exp --imbalance_rate 0.01 --bn_type bn --lr 0.01 --seed 2021 --epochs 200 --loss ce 
+

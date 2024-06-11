@@ -43,7 +43,7 @@ def get_dataset(args):
         }
 
         # Return datasets and subsets
-        return trainset, testset, majority_subset, minority_subset
+        return trainset, testset
 
     elif args.dataset == 'cifar100':
         trainset = cifar100Imbanlance.Cifar100Imbalance(imbalance_rate=args.imbalance_rate, imbalance_type=args.imbalance_type,

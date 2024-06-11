@@ -27,7 +27,7 @@ def soften_target(targets, num_classes, epsilon):
     return targets
 
 
-class Trainer(object):
+class Trainer_cbn(object):
     def __init__(self, args, model=None,train_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=None):
         self.args = args
         self.print_freq = args.print_freq
@@ -132,7 +132,7 @@ class Trainer(object):
 
 
 
-    def train_base(self):
+    def cbn_train_base(self):
         best_acc1 = 0
 
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
@@ -176,7 +176,7 @@ class Trainer(object):
 
             # # ============ Measure NC ============
             if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0: #debug
+                if (epoch + 1) % self.args.debug == 0:
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
                         nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'], nc_dict['nc2_w'],
@@ -473,7 +473,7 @@ class Trainer(object):
 
             # measure NC
             if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0: #debug
+                if (epoch + 1) % self.args.debug == 0:
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f},\nWnorm:{}\nHnorm:{}\nWcos:{}\nWHcos:{}'.format(
                         nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'],

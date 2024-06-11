@@ -9,9 +9,12 @@ import torch.nn as nn
 
 from utils import util
 from utils.util import *
-from Trainer import Trainer
+from Trainer import *
+from Trainer_cbn import *
 from model import Resnet_LT
 from model import ResNet_new
+from model import ResNet_cifar
+from model import ResNet_norm
 from imbalance_data import cifar10Imbanlance, cifar100Imbanlance, dataset_lt_data
 from imbalance_data.data import get_dataset
 
@@ -31,8 +34,10 @@ def get_model(args):
             net = ResNet_new.iresnet50(args=args)
         elif args.arch == 'resnet18':
             net = ResNet_new.resnet18(args=args)
+        elif args.arch == 'baseline_resnet32':
+            net = ResNet_cifar.resnet32(num_class=args.num_classes, etf_cls=args.etf_cls)
         elif args.arch == 'mresnet32':
-            net = ResNet_new.mresnet32(args=args)
+            net = ResNet_norm.mresnet32(args=args)
         elif args.arch == 'resnet34':
             net = ResNet_new.resnet34(args=args)
 
@@ -54,16 +59,13 @@ def main(args):
         cudnn.deterministic = True
         cudnn.benchmark = True
 
-    os.environ["WANDB_API_KEY"] = "0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee"
+    os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
     os.environ["WANDB_MODE"] = "online" #"dryrun"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/lg154/sseg/.cache/wandb"
-    os.environ["WANDB_CONFIG_DIR"] = "/scratch/lg154/sseg/.config/wandb"
-    wandb.login(key='0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee')
-    wandb.init(project='lg3_'+args.dataset,
-               name= args.store_name.split('/')[-1]
-               )
+    wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
+    wandb.init(project="cf100_baseline_1",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
+
 
 
 def main_worker(args):
@@ -128,9 +130,17 @@ def main_worker(args):
 
     start_time = time.time()
     print("Training started!")
-    trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader,
-                      weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
-    trainer.train_base()
+    if args.bn_type == 'cbn':
+        trainer = Trainer_cbn(args, model=model, train_loader=train_loader, val_loader=val_loader,
+                        weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
+        trainer.cbn_train_base()
+    
+    else:
+        trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader,
+                        weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
+        trainer.train_base()
+    
+    
     end_time = time.time()
     print("It took {} to execute the program".format(hms_string(end_time - start_time)))
 
@@ -139,11 +149,11 @@ if __name__ == '__main__':
     # train set
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
-    parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
+    parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--imbalance_rate', default=1.0, type=float, help='imbalance factor')
-    parser.add_argument('--imbalance_type', default='null', type=str, help='imbalance type')
+    parser.add_argument('--imbalance_type', default='null', type=str, help='imbalance type') #exp, step
 
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float, metavar='LR', help='initial learning rate', dest='lr')
     parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
@@ -181,6 +191,8 @@ if __name__ == '__main__':
     parser.add_argument('--store_name', type=str, default='name')
     parser.add_argument('--debug', type=int, default=10)
     parser.add_argument('--knn', default=False, action='store_true')
+    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn, cbn
+
     args = parser.parse_args()
 
     if args.dataset == 'cifar10' or args.dataset == 'fmnist':
