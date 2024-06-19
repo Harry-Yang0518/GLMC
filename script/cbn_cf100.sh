@@ -25,11 +25,12 @@ singularity exec --nv \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
-python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 \
+python main_bn.py --dataset cifar100 -a mresnet32 --imbalance_rate 0.01 \
 --imbalance_type exp --lr 0.01 --seed 2021 --epochs 200 --loss ce \
 --branch2 --contrast --bias --contrast_weight 4 \
 --weight_decay 5e-3 --resample_weighting 0.0 --label_weighting 1.2 \
---store_name cf10_exp_baseline "
+
+--store_name cf100_exp_baseline "
 
 # python main_bn.py --batch_size 64 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 
 # --epochs 200 --loss ${LOSS} --feat none --bn_type bn 

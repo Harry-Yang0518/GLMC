@@ -48,11 +48,7 @@ def analysis(model, loader, args):
                 data = torch.cat(data, dim=0)
                 target = torch.cat((target, target), dim=0)
             data, target = data.to(device), target.to(device)
-            if args.bn_type == 'cbn':
-                logits, feats = model(data, target, ret='of')
-            else:
-                logits, feats = model(data, ret='of')
-            
+            logits, feats = model(data, target, ret='of')
             logits_list.append(logits)
             labels_list.append(target)
             feats_list.append(feats)
@@ -204,7 +200,6 @@ def analysis(model, loader, args):
 
 
 def analysis_feat(model, labels, feats, logits, args):
-    model.eval()
     # analysis without extracting features
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -352,4 +347,3 @@ def analysis_feat(model, labels, feats, logits, args):
         "h_cos2": np.mean(h_cos2) if args.imbalance_type == 'step' else 0,
         "h_cos3": np.mean(h_cos3) if args.imbalance_type == 'step' else 0,
     }
-

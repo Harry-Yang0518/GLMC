@@ -17,14 +17,14 @@ SEED=$3
 
 # Singularity path
 ext3_path=/scratch/$USER/overlay-25GB-500K.ext3
-sif_path=/scratch/lg154/cuda11.4.2-cudnn8.2.4-devel-ubuntu20.04.3.sif
+sif_path=/scratch/hy2611/cuda11.4.2-cudnn8.2.4-devel-ubuntu20.04.3.sif
 
 # start running
 singularity exec --nv \
 --overlay ${ext3_path}:ro \
---overlay /scratch/lg154/sseg/dataset/tiny-imagenet-200.sqf:ro \
+--overlay /scratch/hy2611/sseg/dataset/tiny-imagenet-200.sqf:ro \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
-python main_nc.py --dataset cifar100 -a resnet50 --epochs 600 --scheduler ms --norm gn --coarse \
+python main_nc.py --dataset cifar100 -a mresnet32 --epochs 200 --norm bn --coarse \
   --loss ${LOSS} --eps 0.05 --batch_size ${BS} --seed 202${SEED} --store_name gn_coarse_${LOSS}_b${BS}_s${SEED}
 "

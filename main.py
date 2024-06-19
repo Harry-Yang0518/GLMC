@@ -77,14 +77,11 @@ def main(args):
         cudnn.deterministic = True
         cudnn.benchmark = True
         
-    os.environ["WANDB_API_KEY"] = "0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee"
-    os.environ["WANDB_MODE"] = "online"  #"dryrun"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/lg154/sseg/.cache/wandb"
-    os.environ["WANDB_CONFIG_DIR"] = "/scratch/lg154/sseg/.config/wandb"
-    wandb.login(key='0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee')
-    wandb.init(project='bn_'+args.dataset,
-               name= args.store_name.split('/')[-1]
-               )
+
+    os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
+    os.environ["WANDB_MODE"] = "dryrun" #"dryrun"
+    wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
+    wandb.init(project="baseline_for_nc",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 

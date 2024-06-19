@@ -10,8 +10,8 @@
 #SBATCH --partition=a100_1,a100_2,v100,rtx8000
 
 # job info
-# IB=$1
-# LOSS=$2
+IB=$1
+LOSS=$2
 # FEAT=$3
 
 
@@ -25,11 +25,8 @@ singularity exec --nv \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
-python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 \
---imbalance_type exp --lr 0.01 --seed 2021 --epochs 200 --loss ce \
---branch2 --contrast --bias --contrast_weight 4 \
---weight_decay 5e-3 --resample_weighting 0.0 --label_weighting 1.2 \
---store_name cf10_exp_baseline "
+python main_bn.py --dataset cifar100 -a mresnet32 --etf_cls --imbalance_rate 0.01 --imbalance_type step --lr 0.01 --seed 2021 --epochs 200 --loss ce --bn_type bn \
+--store_name batchn_IR_${IB}_${LOSS}_etf "
 
 # python main_bn.py --batch_size 64 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 
 # --epochs 200 --loss ${LOSS} --feat none --bn_type bn 

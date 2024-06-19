@@ -300,7 +300,7 @@ class ResNet_modify(nn.Module):
         feat = self.feature(out, label)
         if self.args.norm:
             feat = F.normalize(feat, p=2, dim=-1)
-        out = self.fc(feat)
+        out = self.fc(feat)  #self.fc = nn.linear()
 
         if ret == 'of':
             return out, feat
@@ -311,6 +311,18 @@ class ResNet_modify(nn.Module):
             return out, out_c, z, p
         else:
             return out
+
+    ### the forward function in Yibo's article
+    #
+    # def forward(self, x):
+    #     out = F.relu(self.bn1(self.conv1(x)))
+    #     out = self.layer1(out)
+    #     out = self.layer2(out)
+    #     out = self.layer3(out)
+    #     out = F.avg_pool2d(out, out.size()[3])
+    #     out = out.view(out.size(0), -1)
+    #     out = self.linear(out)
+    #     return out
 
     def forward_mixup(self, x, target=None, mixup=None, mixup_alpha=None):
 

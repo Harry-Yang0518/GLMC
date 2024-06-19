@@ -265,7 +265,7 @@ class Trainer_bn(object):
 
             # # ============ Measure NC ============
             if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0: #debug
+                if (epoch +1 ) % self.args.debug == 0: #debug
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
                         nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'], nc_dict['nc2_w'],

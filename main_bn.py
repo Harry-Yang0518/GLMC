@@ -58,7 +58,7 @@ def main(args):
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
     os.environ["WANDB_MODE"] = "online" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
-    wandb.init(project="cbn_4_18",name=args.store_name)
+    wandb.init(project="cf10_observe_norm_and_bias",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 
@@ -107,8 +107,8 @@ def main_worker(args):
                                         num_workers=num_workers, persistent_workers=True, pin_memory=True)
 
     # Create data loaders for majority and minority subsets
-    majority_loader = create_subset_loader(majority_subset, args.batch_size, args.workers, shuffle=True)
-    minority_loader = create_subset_loader(minority_subset, args.batch_size, args.workers, shuffle=True)
+    # majority_loader = create_subset_loader(majority_subset, args.batch_size, args.workers, shuffle=True)
+    # minority_loader = create_subset_loader(minority_subset, args.batch_size, args.workers, shuffle=True)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                shuffle=(train_sampler is None), num_workers=args.workers,
@@ -145,7 +145,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
     parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
+    parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--branch2', default=False, action='store_true')                 # turn on
     parser.add_argument('--contrast', default=False, action='store_true')  
     
