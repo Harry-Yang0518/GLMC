@@ -9,15 +9,36 @@ from .utils import *
 
 class LinearLayer(nn.Module):
 
-    def __init__(self, in_features, out_features,):
+    def __init__(self, in_features, out_features, bias=False):
         super(LinearLayer, self).__init__()
+        self.bias = bias
         self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        if self.bias:
+            self.mu = nn.Parameter(torch.FloatTensor(in_features))
         nn.init.xavier_uniform_(self.weight)
 
     def forward(self, input):
         # --------------------------- cos(theta) & phi(theta) ---------------------------
-        logits = F.linear(F.normalize(input), F.normalize(self.weight))   # [B, 10]
+        if self.bias:
+            logits = F.linear(F.normalize(input) - self.mu, F.normalize(self.weight))  # [B, 10]
+        else:
+            logits = F.linear(F.normalize(input), F.normalize(self.weight))   # [B, 10]
         return logits.clamp(-1, 1)
+
+
+class BLinearLayer(nn.Module):
+    """custom linear layer with constant bias"""
+    def __init__(self, in_features, out_features,):
+        super(BLinearLayer, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
+        self.bias_param = nn.Parameter(torch.Tensor(1))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, input):
+        bias = self.bias_param.expand(self.out_features)  # Create bias vector from single parameter
+        return torch.nn.functional.linear(input, self.weight, bias)
 
 
 def _weights_init(m):
@@ -247,6 +268,11 @@ class ResNet_modify(nn.Module):
             self.feature = BNSequential(nn.AdaptiveAvgPool2d((1, 1)),
                                         nn.Flatten()
                                         )
+        elif self.args.feat == 'b':
+            self.feature = BNSequential(norm_layer(self.out_dim, affine=False),
+                                        nn.AdaptiveAvgPool2d((1, 1)),
+                                        nn.Flatten()
+                                        )
         elif self.args.feat == 'fb':                                              # still need to fix norm layer
             self.feature = BNSequential(nn.Flatten(),
                                         nn.Linear(self.out_dim * 4 * 4, self.out_dim),
@@ -261,10 +287,13 @@ class ResNet_modify(nn.Module):
                                         )
 
         if args.loss.endswith('m'):  # m for margin loss, linear layer which normalize both feature and weight w
-            self.fc = LinearLayer(self.out_dim, self.num_classes)
+            self.fc = LinearLayer(self.out_dim, self.num_classes, bias=self.args.bias.lower() == 't')
         else:
-            self.fc = nn.Linear(self.out_dim, self.num_classes, bias=self.args.bias)  # may need to change the bias
-            self.apply(_weights_init)
+            if self.args.bias in ['f', 't']:
+                self.fc = nn.Linear(self.out_dim, self.num_classes, bias=self.args.bias.lower()=='t')  # may need to change the bias
+                self.apply(_weights_init)
+            elif self.args.bias == 'c':
+                self.fc = BLinearLayer(self.out_dim, self.num_classes)
 
         if args.branch2:
             self.fc_c = nn.Linear(self.out_dim, self.num_classes, bias=True)

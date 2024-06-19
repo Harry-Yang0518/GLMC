@@ -5,12 +5,17 @@ import numpy as np
 
 class BalancedBatchNorm2d(nn.Module):
     # num_features: the number of output channels for a convolutional layer.
-    def __init__(self, num_features, ):
+    def __init__(self, num_features, affine=True):
         super().__init__()
         shape = (1, num_features, 1, 1)
         # The scale parameter and the shift parameter
-        self.gamma = nn.Parameter(torch.ones(shape))
-        self.beta = nn.Parameter(torch.zeros(shape))
+        self.affine = affine
+        if affine:
+            self.gamma = nn.Parameter(torch.ones(shape))
+            self.beta = nn.Parameter(torch.zeros(shape))
+        else:
+            self.gamma = torch.ones(shape)
+            self.beta = torch.zeros(shape)
         # moving_mean and moving_var are initialized to 0 and 1
         self.moving_mean = torch.zeros(shape)
         self.moving_var = torch.ones(shape)
@@ -20,6 +25,9 @@ class BalancedBatchNorm2d(nn.Module):
         if self.moving_mean.device != X.device:
             self.moving_mean = self.moving_mean.to(X.device)
             self.moving_var = self.moving_var.to(X.device)
+        if self.gamma.device != X.device:
+            self.gamma = self.gamma.to(X.device)
+            self.beta = self.beta.to(X.device)
         # Save the updated moving_mean and moving_var
         Y, self.moving_mean, self.moving_var = batch_norm(
             X, label, self.gamma, self.beta, self.moving_mean, self.moving_var, eps=1e-6, momentum=0.1

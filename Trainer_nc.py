@@ -20,17 +20,17 @@ from model.loss import CrossEntropyLabelSmooth, CDTLoss, LDTLoss
 
 
 def _get_polynomial_decay(lr, end_lr, decay_epochs, from_epoch=0, power=1.0):
-  # Note: epochs are zero indexed by pytorch
-  end_epoch = float(from_epoch + decay_epochs)
+    # Note: epochs are zero indexed by pytorch
+    end_epoch = float(from_epoch + decay_epochs)
 
-  def lr_lambda(epoch):
-    if epoch < from_epoch:
-      return 1.0
-    epoch = min(epoch, end_epoch)
-    new_lr = ((lr - end_lr) * (1. - epoch / end_epoch) ** power + end_lr)
-    return new_lr / lr  # LambdaLR expects returning a factor
+    def lr_lambda(epoch):
+        if epoch < from_epoch:
+            return 1.0
+        epoch = min(epoch, end_epoch)
+        new_lr = ((lr - end_lr) * (1. - epoch / end_epoch) ** power + end_lr)
+        return new_lr / lr  # LambdaLR expects returning a factor
 
-  return lr_lambda
+    return lr_lambda
 
 
 def get_scheduler(args, optimizer, n_batches):
@@ -40,13 +40,12 @@ def get_scheduler(args, optimizer, n_batches):
                                       decay_epochs=args.decay_epochs,
                                       from_epoch=0, power=args.power)
     SCHEDULERS = {
-        'step': torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs//10, gamma=args.lr_decay),
-        'multi_step': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150,350], gamma=0.1),
-        'ms': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150,350], gamma=0.1),
+        'step': torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs // 10, gamma=args.lr_decay),
+        'multi_step': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 350], gamma=0.1),
+        'ms': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 350], gamma=0.1),
         'poly': torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
     }
     return SCHEDULERS[args.scheduler]
-
 
 
 class Trainer(object):
@@ -60,14 +59,15 @@ class Trainer(object):
 
         self.train_loader = train_loader
         self.val_loader = val_loader
-        if args.imbalance_type == 'step' or args.imbalance_type == 'exp': 
+        if args.imbalance_type == 'step' or args.imbalance_type == 'exp':
             self.cls_num_list = np.array(train_loader.dataset.per_class_num)
-        else: 
-            self.cls_num_list = np.array([500]*args.num_classes)
+        else:
+            self.cls_num_list = np.array([500] * args.num_classes)
 
         self.num_classes = args.num_classes
         self.model = model
-        self.optimizer = torch.optim.SGD(self.model.parameters(), momentum=0.9, lr=self.lr, weight_decay=args.weight_decay)
+        self.optimizer = torch.optim.SGD(self.model.parameters(), momentum=0.9, lr=self.lr,
+                                         weight_decay=args.weight_decay)
         self.lr_scheduler = get_scheduler(args, self.optimizer, n_batches=len(train_loader))
 
         self.log = log
@@ -125,6 +125,10 @@ class Trainer(object):
                     epoch=epoch + 1, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg,
                     acc=train_acc.avg
                 ))
+            if epoch % 10 == 0 and self.args.bias:
+                bias_values = self.model.fc.bias.data
+                self.log.info('--Epoch_{epoch}, Bias: {bias_str}'.format(
+                    epoch=epoch + 1, bias_str=', '.join([f'{bias_value:.4f}' for bias_value in bias_values])))
             wandb.log({'train/train_loss': losses.avg,
                        'train/train_acc': train_acc.avg,
                        'lr': self.optimizer.param_groups[0]['lr']},
@@ -133,9 +137,9 @@ class Trainer(object):
             # ===== evaluate on validation set
             acc1, acc5, cls_acc, many_acc, few_acc = self.validate(epoch=epoch)
             wandb.log({'val/val_acc1': acc1,
-                       'val/val_acc5': acc5, 
-                       'val/many_acc':many_acc, 
-                       'val/few_acc':few_acc},
+                       'val/val_acc5': acc5,
+                       'val/many_acc': many_acc,
+                       'val/few_acc': few_acc},
                       step=epoch + 1)
 
             # ===== measure NC
@@ -144,9 +148,11 @@ class Trainer(object):
                     nc_dict = analysis(self.model, self.train_loader, self.args)
                     nc_dict['test_acc'] = acc1
 
-                    self.log.info('>>>>Epoch:{}, Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}, TestAcc:{:.2f}'.format(
-                        epoch+1, nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'], nc_dict['nc2_w'],
-                        nc_dict['nc3'], nc_dict['test_acc']))
+                    self.log.info(
+                        '>>>>Epoch:{}, Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}, TestAcc:{:.2f}'.format(
+                            epoch + 1, nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'],
+                            nc_dict['nc2_w'],
+                            nc_dict['nc3'], nc_dict['test_acc']))
                     train_nc.load_dt(nc_dict, epoch=epoch + 1, lr=self.optimizer.param_groups[0]['lr'])
                     wandb.log({'nc/loss': nc_dict['loss'],
                                'nc/acc': nc_dict['acc'],
@@ -212,13 +218,13 @@ class Trainer(object):
                 all_preds.extend(pred.cpu().numpy())
                 all_targets.extend(target.cpu().numpy())
 
-            self.log.info('---->EPOCH_{epoch} Val: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'.format(epoch=epoch + 1, top1=top1, top5=top5))
+            self.log.info(
+                '---->EPOCH_{epoch} Val: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'.format(epoch=epoch + 1, top1=top1, top5=top5))
             # out_cls_acc = '%s Class Accuracy: %s' % ('val', (np.array2string(cls_acc, separator=',', formatter={'float_kind': lambda x: "%.3f" % x})))
             # self.log.info(out_cls_acc)
-        
-        cls_acc, many_acc, few_acc = self.calculate_acc(all_targets, all_preds) 
-        return top1.avg, top5.avg, cls_acc, many_acc, few_acc 
-        
+
+        cls_acc, many_acc, few_acc = self.calculate_acc(all_targets, all_preds)
+        return top1.avg, top5.avg, cls_acc, many_acc, few_acc
 
     def calculate_acc(self, targets, preds):
         eps = np.finfo(np.float64).eps
@@ -228,9 +234,9 @@ class Trainer(object):
         cls_acc = cls_hit / cls_cnt
 
         many_shot = self.cls_num_list >= np.max(self.cls_num_list)
-        few_shot  = self.cls_num_list <= np.min(self.cls_num_list)
+        few_shot = self.cls_num_list <= np.min(self.cls_num_list)
 
         many_acc = float(sum(cls_acc[many_shot]) * 100 / (sum(many_shot) + eps))
-        few_acc  = float(sum(cls_acc[few_shot]) * 100 / (sum(few_shot) + eps))
+        few_acc = float(sum(cls_acc[few_shot]) * 100 / (sum(few_shot) + eps))
 
         return cls_acc, many_acc, few_acc

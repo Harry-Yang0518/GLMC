@@ -56,9 +56,9 @@ def main(args):
         cudnn.benchmark = True
 
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
-    os.environ["WANDB_MODE"] = "online" #"dryrun"
+    os.environ["WANDB_MODE"] = "dryrun" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
-    wandb.init(project="cf10_observe_norm_and_bias",name=args.store_name)
+    wandb.init(project="debug",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 
@@ -122,7 +122,7 @@ def main_worker(args):
         cls_num_list[label] += 1
     cls_num_list = np.array(cls_num_list)
 
-    cls_weight = (np.max(cls_num_list) - cls_num_list)/cls_num_list
+    cls_weight = (np.max(cls_num_list) - cls_num_list) / cls_num_list
     samples_weight = np.array([cls_weight[t] for t in train_dataset.targets])
     samples_weight = torch.from_numpy(samples_weight)
     samples_weight = samples_weight.double()
@@ -134,7 +134,7 @@ def main_worker(args):
     start_time = time.time()
     print("Training started!")
     trainer = Trainer_bn(args, model=model, train_loader=train_loader, val_loader=val_loader,
-                      weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
+                         weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
     trainer.train_base()
     end_time = time.time()
     print("It took {} to execute the program".format(hms_string(end_time - start_time)))
@@ -143,31 +143,34 @@ def main_worker(args):
 if __name__ == '__main__':
     # train set
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
-    parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
-    parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32') # , choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
-    parser.add_argument('--branch2', default=False, action='store_true')                 # turn on
-    parser.add_argument('--contrast', default=False, action='store_true')  
-    
+    parser.add_argument('--dataset', type=str, default='cifar10', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
+    parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
+    parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32')  # choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
+    parser.add_argument('--branch2', default=False, action='store_true')  # turn on
+    parser.add_argument('--contrast', default=False, action='store_true')
+
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--imbalance_rate', default=1.0, type=float, help='imbalance factor')
     parser.add_argument('--imbalance_type', default='null', type=str, help='imbalance type')
 
-    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float, metavar='LR', help='initial learning rate', dest='lr')
+    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float, metavar='LR', help='initial learning rate',
+                        dest='lr')
     parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
     parser.add_argument('--batch_size', default=64, type=int, metavar='N', help='mini-batch size')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
-    parser.add_argument('--wd', '--weight_decay', default=5e-3, type=float, metavar='W', help='weight decay (default: 5e-3、2e-4、1e-4)', dest='weight_decay')
+    parser.add_argument('--wd', '--weight_decay', default=5e-3, type=float, metavar='W',
+                        help='weight decay (default: 5e-3、2e-4、1e-4)', dest='weight_decay')
 
-    parser.add_argument('--resample_weighting', default=0.0, type=float, help='weighted for sampling probability (q(1,k))')
+    parser.add_argument('--resample_weighting', default=0.0, type=float,
+                        help='weighted for sampling probability (q(1,k))')
     parser.add_argument('--label_weighting', default=1.0, type=float, help='weighted for Loss')
     parser.add_argument('--contrast_weight', default=10, type=int, help='Mixture Consistency  Weights')
     parser.add_argument('--beta', type=float, default=0.5, help="augment mixture")
 
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--norm', default=False, action='store_true')  # none|nn1|nn2
-    parser.add_argument('--bn_type', type=str, default='bn')   # cbn: class balanced bn, cbn
-    parser.add_argument('--bias', default=False, action='store_true')  # none|nn1|nn2
+    parser.add_argument('--bn_type', type=str, default='bn')  # cbn: class balanced bn
+    parser.add_argument('--bias', type=str, default='t')  # t|f|c
     parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge
     parser.add_argument('--margins', type=str, default='1.0_0.5_0.0')
     parser.add_argument('--eps', type=float, default=0.05)  # for ls loss

@@ -38,7 +38,8 @@ def get_samples_per_class(dataset, num_samples_per_class=10, num_classes=10):
 
 
 class Trainer_bn(object):
-    def __init__(self, args, model=None,train_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=None):
+    def __init__(self, args, model=None, train_loader=None, val_loader=None, weighted_train_loader=None,
+                 per_class_num=[], log=None):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.args = args
         self.print_freq = args.print_freq
@@ -50,10 +51,10 @@ class Trainer_bn(object):
         self.weighted_train_loader = weighted_train_loader
 
         # init queue
-        if args.bn_type == 'cbn':
+        if args.bn_type == 'cbn0':
             samples_per_class = get_samples_per_class(train_loader.dataset,
-                                                    num_samples_per_class=np.ceil(args.batch_size/args.num_classes),
-                                                    num_classes=args.num_classes)
+                                                      num_samples_per_class=np.ceil(args.batch_size / args.num_classes),
+                                                      num_classes=args.num_classes)
             self.queue = {k: torch.cat(samples_per_class[k], dim=0).to(self.device) for k in range(args.num_classes)}
             self.queue_ptr = {k: torch.zeros(1, dtype=torch.long) for k in range(args.num_classes)}
 
@@ -105,59 +106,63 @@ class Trainer_bn(object):
         for i, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
 
-            if self.args.aug == 'cm' or self.args.aug == 'cutmix':     # cutmix augmentation within the mini-batch
+            if self.args.aug == 'cm' or self.args.aug == 'cutmix':  # cutmix augmentation within the mini-batch
                 cutmix = v2.CutMix(num_classes=self.args.num_classes)
-                inputs, reweighted_targets = cutmix(inputs, targets)   # reweighted target will be [B, K]
+                inputs, reweighted_targets = cutmix(inputs, targets)  # reweighted target will be [B, K]
 
             # if self.args.mixup >= 0:
             #     output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup,
             #                                                              mixup_alpha=self.args.mixup_alpha)
-            
+
             freq = torch.bincount(targets, minlength=self.args.num_classes)
-            cls_idx = torch.where(freq==0)[0]
-            if len(cls_idx) > 0 and self.args.bn_type == 'cbn':
-                if True:
+            cls_idx = torch.where(freq == 0)[0]
+
+            if len(cls_idx) > 0 and (self.args.bn_type == 'cbn' or self.args.bn_type == 'cbn0'):
+                if self.args.bn_type == 'cbn0':
+                    bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
+                    bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()],
+                                           dim=0).to(self.device)
+                else:
                     try:
                         bn_inputs, bn_targets = next(weighted_train_loader)
                     except:
                         weighted_train_loader = iter(self.weighted_train_loader)
                         bn_inputs, bn_targets = next(weighted_train_loader)
                     bn_inputs, bn_targets = bn_inputs.to(self.device), bn_targets.to(self.device)
-                else:
-                    bn_inputs = torch.cat([self.queue[k] for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
-                    bn_targets = torch.cat([torch.tensor(k).repeat(len(self.queue[0])) for k in cls_idx.cpu().numpy()], dim=0).to(self.device)
 
                 all_inputs = torch.cat([inputs, bn_inputs])
                 all_targets = torch.cat([targets, bn_targets])
-            else: 
+            else:
                 all_inputs, all_targets = inputs, targets
 
             output_all, h_all = self.model(all_inputs, all_targets, ret='of')
             output, h = output_all[0:len(inputs)], h_all[0:len(inputs)]
 
             # update the img_bank with current batch
-            if self.args.bn_type == 'cbn' and False:
+            if self.args.bn_type == 'cbn0':
                 for k in self.queue:
                     cls_idx = torch.where(targets == k)[0]
                     if len(cls_idx) == 0:
                         pass
                     else:
                         ptr = self.queue_ptr[k]
-                        num_cls = min(len(self.queue[k]), len(cls_idx))                  
+                        num_cls = min(len(self.queue[k]), len(cls_idx))
 
                         # replace the keys at ptr (dequeue and enqueue)
                         if ptr + num_cls <= len(self.queue[k]):
                             self.queue[k][ptr:ptr + num_cls] = inputs[cls_idx][:num_cls]
-                        else: 
-                            self.queue[k][ptr:] = inputs[cls_idx][num_cls-(len(self.queue[k])-ptr):num_cls]
-                            self.queue[k][:num_cls-(len(self.queue[k])-ptr)] = inputs[cls_idx][:num_cls-(len(self.queue[k])-ptr)]
+                        else:
+                            self.queue[k][ptr:] = inputs[cls_idx][num_cls - (len(self.queue[k]) - ptr):num_cls]
+                            self.queue[k][:num_cls - (len(self.queue[k]) - ptr)] = inputs[cls_idx][:num_cls - (
+                                        len(self.queue[k]) - ptr)]
                         self.queue_ptr[k] = (ptr + num_cls) % len(self.queue[k])  # move pointer
 
             # ==== update loss and acc
             train_acc.update(torch.sum(output.argmax(dim=-1) == targets).item() / targets.size(0),
                              targets.size(0)
                              )
-            loss = self.criterion(output, reweighted_targets if self.args.mixup >= 0 or self.args.aug == 'cm' or self.args.aug == 'cutmix' else targets)
+            loss = self.criterion(output,
+                                  reweighted_targets if self.args.mixup >= 0 or self.args.aug == 'cm' or self.args.aug == 'cutmix' else targets)
             losses.update(loss.item(), targets.size(0))
 
             # ==== gradient update
@@ -191,7 +196,7 @@ class Trainer_bn(object):
         best_acc1 = 0
 
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
-        wandb.watch(self.model, self.criterion, log="all", log_freq=10)
+        wandb.watch(self.model, self.criterion, log=None, log_freq=10)
         train_nc = Graph_Vars()
         val_nc = Graph_Vars()
 
@@ -203,19 +208,25 @@ class Trainer_bn(object):
             epoch_time = time.time() - start_time
             self.log.info(
                 '====>EPOCH{epoch}Train{iters}, Epoch Time:{epoch_time:.3f}, Loss:{loss:.4f}, Acc:{acc:.4f}'.format(
-                    epoch=epoch + 1, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg, acc=train_acc.avg
+                    epoch=epoch + 1, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg,
+                    acc=train_acc.avg
                 ))
             wandb.log({'train/train_loss': losses.avg,
                        'train/train_acc': train_acc.avg,
                        'lr': self.optimizer.param_groups[0]['lr']},
                       step=epoch + 1)
+            if epoch % 10 == 0 and (self.args.bias in ['t', 'true']):
+                bias_values = self.model.fc.bias.data
+                self.log.info('--Epoch_{epoch}, Bias: {bias_str}'.format(
+                    epoch=epoch + 1, bias_str=', '.join([f'{bias_value:.4f}' for bias_value in bias_values])))
 
             # ============ evaluation ============
 
             # === validation using Nearest centroid
             if self.args.imbalance_rate < 1.0:
                 cfeats = self.get_knncentroids()
-                self.knn_classifier = KNNClassifier(feat_dim=self.model.out_dim, num_classes=self.args.num_classes, feat_type='cl2n', dist_type='l2')
+                self.knn_classifier = KNNClassifier(feat_dim=self.model.out_dim, num_classes=self.args.num_classes,
+                                                    feat_type='cl2n', dist_type='l2')
                 self.knn_classifier.update(cfeats)
             else:
                 self.knn_classifier = None
@@ -224,7 +235,8 @@ class Trainer_bn(object):
 
             # ==== regular validation
             acc1, acc5 = accuracy(val_logits, val_targets, topk=(1, 5))
-            cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(), val_logits.argmax(1).cpu().numpy())
+            cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(),
+                                                                        val_logits.argmax(1).cpu().numpy())
             self.log.info('---->EPOCH {} Val: Prec@1 {:.3f} Prec@5 {:.3f}'.format(epoch, acc1, acc5))
             self.log.info("many acc {:.2f}, med acc {:.2f}, few acc {:.2f}".format(many_acc, medium_acc, few_acc))
 
@@ -260,7 +272,7 @@ class Trainer_bn(object):
             is_best = acc1 > best_acc1
             best_acc1 = max(acc1, best_acc1)
             save_checkpoint(self.args,
-                            {'epoch': epoch + 1, 'state_dict': self.model.state_dict(),'best_acc1': best_acc1,},
+                            {'epoch': epoch + 1, 'state_dict': self.model.state_dict(), 'best_acc1': best_acc1, },
                             is_best, epoch + 1)
 
             # # ============ Measure NC ============
@@ -326,7 +338,6 @@ class Trainer_bn(object):
             pickle.dump(val_nc, f)
         self.log.info('-- Has saved Val NC analysis result to {}'.format(filename))
 
-
     def get_feat_logits(self, loader):
         self.model.eval()
         all_logits, all_ncc_logits, all_targets, all_feats = [], [], [], []
@@ -371,7 +382,7 @@ class Trainer_bn(object):
 
         return cls_acc, many_acc, medium_acc, few_acc
 
-    def SimSiamLoss(self,p, z, version='simplified'):  # negative cosine similarity
+    def SimSiamLoss(self, p, z, version='simplified'):  # negative cosine similarity
         z = z.detach()  # stop gradient
 
         if version == 'original':
@@ -384,7 +395,7 @@ class Trainer_bn(object):
         else:
             raise Exception
 
-    def paco_adjust_learning_rate(self,optimizer, epoch, args):
+    def paco_adjust_learning_rate(self, optimizer, epoch, args):
         warmup_epochs = 10
         lr = self.args.lr
         if epoch <= warmup_epochs:
@@ -404,7 +415,7 @@ class Trainer_bn(object):
         # Calculate initial centroids only on training data.
         with torch.set_grad_enabled(False):
             for i, (inputs, labels) in enumerate(self.train_loader):
-                if isinstance(inputs, list): 
+                if isinstance(inputs, list):
                     inputs = torch.cat(inputs, dim=0)
                     labels = torch.cat((labels, labels), dim=0)
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
@@ -475,7 +486,8 @@ class Trainer_bn(object):
 
                 one_hot_org = torch.zeros(target_org.size(0), self.num_classes).scatter_(1, target_org.view(-1, 1), 1)
                 one_hot_org_w = self.per_cls_weights.cpu() * one_hot_org
-                one_hot_invs = torch.zeros(target_invs.size(0), self.num_classes).scatter_(1, target_invs.view(-1, 1), 1)
+                one_hot_invs = torch.zeros(target_invs.size(0), self.num_classes).scatter_(1, target_invs.view(-1, 1),
+                                                                                           1)
                 one_hot_invs = one_hot_invs[:one_hot_org.size()[0]]
                 one_hot_invs_w = self.per_cls_weights.cpu() * one_hot_invs
 
@@ -507,8 +519,9 @@ class Trainer_bn(object):
 
                 loss_mix = -torch.mean(torch.sum(F.log_softmax(output_c1, dim=1) * mixup_y, dim=1))
                 loss_cut = -torch.mean(torch.sum(F.log_softmax(output_c2, dim=1) * cutmix_y, dim=1))
-                loss_mix_w = -torch.mean(torch.sum(F.log_softmax(output_1, dim=1) * mixup_y_w, dim=1))   # class balanced
-                loss_cut_w = -torch.mean(torch.sum(F.log_softmax(output_2, dim=1) * cutmix_y_w, dim=1))  # class balanced
+                loss_mix_w = -torch.mean(torch.sum(F.log_softmax(output_1, dim=1) * mixup_y_w, dim=1))  # class balanced
+                loss_cut_w = -torch.mean(
+                    torch.sum(F.log_softmax(output_2, dim=1) * cutmix_y_w, dim=1))  # class balanced
 
                 balance_loss = loss_mix + loss_cut
                 rebalance_loss = loss_mix_w + loss_cut_w
@@ -525,8 +538,8 @@ class Trainer_bn(object):
             # ===== finish one epoch
             epoch_time = time.time() - start_time
             self.log.info('====>EPOCH {epoch} Iters {iters}, Epoch Time:{epoch_time:.3f}, Loss:{loss:.4f}.'.format(
-                    epoch=epoch, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg
-                ))
+                epoch=epoch, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg
+            ))
             wandb.log({'train/train_loss': losses.avg,
                        'lr': self.optimizer.param_groups[0]['lr']},
                       step=epoch)
@@ -556,7 +569,7 @@ class Trainer_bn(object):
                                'nc/nc3d': nc_dict['nc3_d'],
                                },
                               step=epoch + 1)
-                    
+
                     if self.args.imbalance_type == 'step' and self.args.imbalance_rate < 1.0:
                         wandb.log({'nc1/w_mnorm': nc_dict['w_mnorm'],
                                    'nc1/w_mnorm1': nc_dict['w_mnorm1'],
@@ -571,7 +584,7 @@ class Trainer_bn(object):
                                    'nc1/h_cos2': nc_dict['h_cos2'],
                                    'nc1/h_cos3': nc_dict['h_cos3']},
                                   step=epoch + 1)
-                        
+
                     val_nc_dict = analysis_feat(self.model, val_targets, val_feats, val_logits, self.args)
                     wandb.log({'nc_val/loss': nc_dict['loss'],
                                'nc_val/acc': nc_dict['acc'],
@@ -605,8 +618,9 @@ class Trainer_bn(object):
             acc1, acc5 = accuracy(val_logits, val_targets, topk=(1, 5))
             cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(),
                                                                         val_logits.argmax(1).cpu().numpy())
-            self.log.info('---->EPOCH {} Val: Prec@1 {:.3f} Prec@5 {:.3f}, many acc {:.2f}, med acc {:.2f}, few acc {:.2f}'.format(
-                epoch, acc1, acc5, many_acc, medium_acc, few_acc))
+            self.log.info(
+                '---->EPOCH {} Val: Prec@1 {:.3f} Prec@5 {:.3f}, many acc {:.2f}, med acc {:.2f}, few acc {:.2f}'.format(
+                    epoch, acc1, acc5, many_acc, medium_acc, few_acc))
 
             wandb.log({'val/val_acc1': acc1,
                        'val/val_acc5': acc5,
@@ -620,8 +634,9 @@ class Trainer_bn(object):
                 acc1, acc5 = accuracy(val_ncc_logits, val_targets, topk=(1, 5))
                 cls_acc, many_acc, medium_acc, few_acc = self.calculate_acc(val_targets.cpu().numpy(),
                                                                             val_ncc_logits.argmax(1).cpu().numpy())
-                self.log.info('---->EPOCH {} NCC Val: Prec@1 {:.3f} Prec@5 {:.3f}, many acc {:.2f}, med acc {:.2f}, few acc {:.2f}'.format(
-                    epoch, acc1, acc5, many_acc, medium_acc, few_acc))
+                self.log.info(
+                    '---->EPOCH {} NCC Val: Prec@1 {:.3f} Prec@5 {:.3f}, many acc {:.2f}, med acc {:.2f}, few acc {:.2f}'.format(
+                        epoch, acc1, acc5, many_acc, medium_acc, few_acc))
 
                 wandb.log({'knn_val/val_acc1': acc1,
                            'knn_val/val_acc5': acc5,

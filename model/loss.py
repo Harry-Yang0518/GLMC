@@ -95,9 +95,9 @@ class CombinedMarginLoss(torch.nn.Module):
                  interclass_filtering_threshold=0):
         super().__init__()
         self.s = s
-        self.m1 = m1
-        self.m2 = m2
-        self.m3 = m3
+        self.m1 = m1  # 1
+        self.m2 = m2  # 0.5
+        self.m3 = m3  # 0
         self.interclass_filtering_threshold = interclass_filtering_threshold
 
         # For ArcFace
@@ -125,10 +125,9 @@ class CombinedMarginLoss(torch.nn.Module):
         if self.m1 == 1.0 and self.m3 == 0.0:
             with torch.no_grad():
                 target_logit.arccos_()  # angle for target class  \theta_y
-                logits.arccos_()  # angle for all classes   \theta_j
+                logits.arccos_()        # angle for all classes   \theta_j
                 final_target_logit = target_logit + self.m2  # \theta_y + m2
-                logits[index_positive, labels[index_positive].view(
-                    -1)] = final_target_logit  # update \theta_y in \theta vector
+                logits[index_positive, labels[index_positive].view(-1)] = final_target_logit  # update \theta_y in \theta vector
                 logits.cos_()
             logits = logits * self.s  # s*cos(\theta_j)  (j=y: target class different)
 
