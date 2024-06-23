@@ -54,14 +54,10 @@ def main(args):
         cudnn.deterministic = True
         cudnn.benchmark = True
 
-    os.environ["WANDB_API_KEY"] = "0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee"
-    os.environ["WANDB_MODE"] = "online"  # "dryrun"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/lg154/sseg/.cache/wandb"
-    os.environ["WANDB_CONFIG_DIR"] = "/scratch/lg154/sseg/.config/wandb"
-    wandb.login(key='0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee')
-    wandb.init(project='bn_' + args.dataset,
-               name=args.store_name.split('/')[-1]
-               )
+    os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
+    os.environ["WANDB_MODE"] = "online" #"dryrun"
+    wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
+    wandb.init(project="24.6.23_2",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 
@@ -136,8 +132,8 @@ if __name__ == '__main__':
     # train set
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,ImageNet-LT,iNaturelist2018")
-    parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32')  # choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
+    parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
+    parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32')  # choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--branch2', default=False, action='store_true')  # turn on
     parser.add_argument('--contrast', default=False, action='store_true')
 
@@ -162,8 +158,8 @@ if __name__ == '__main__':
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--norm', default=False, action='store_true')  # none|nn1|nn2
     parser.add_argument('--bn_type', type=str, default='bn')  # cbn: class balanced bn
-    parser.add_argument('--bias', type=str, default='t')  # t|f|c
-    parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge
+    parser.add_argument('--bias', type=str, default='t')  # t|f|c|g with arcm
+    parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge|arcf
     parser.add_argument('--margins', type=str, default='1.0_0.5_0.0')
     parser.add_argument('--eps', type=float, default=0.05)  # for ls loss
     parser.add_argument('--etf_cls', default=False, action='store_true')

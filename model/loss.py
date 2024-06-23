@@ -115,7 +115,7 @@ class CombinedMarginLoss(torch.nn.Module):
                 dirty = logits > self.interclass_filtering_threshold
                 dirty = dirty.float()
                 mask = torch.ones([index_positive.size(0), logits.size(1)], device=logits.device)
-                mask.scatter_(1, labels[index_positive], 0)
+                mask.scatter_(1, labels[index_positive].view(-1, 1), 0)
                 dirty[index_positive] *= mask
                 tensor_mul = 1 - dirty
             logits = tensor_mul * logits
@@ -123,12 +123,10 @@ class CombinedMarginLoss(torch.nn.Module):
         target_logit = logits[index_positive, labels[index_positive].view(-1)]
 
         if self.m1 == 1.0 and self.m3 == 0.0:
-            with torch.no_grad():
-                target_logit.arccos_()  # angle for target class  \theta_y
-                logits.arccos_()        # angle for all classes   \theta_j
-                final_target_logit = target_logit + self.m2  # \theta_y + m2
-                logits[index_positive, labels[index_positive].view(-1)] = final_target_logit  # update \theta_y in \theta vector
-                logits.cos_()
+            target_logit_arccos = target_logit.acos()  # angle for target class  \theta_y
+            logits_arccos = logits.acos()        # angle for all classes   \theta_j
+            final_target_logit = target_logit_arccos + self.m2  # \theta_y + m2
+            logits[index_positive, labels[index_positive].view(-1)] = final_target_logit.cos()  # update \theta_y in \theta vector
             logits = logits * self.s  # s*cos(\theta_j)  (j=y: target class different)
 
         elif self.m3 > 0:
@@ -136,7 +134,7 @@ class CombinedMarginLoss(torch.nn.Module):
             logits[index_positive, labels[index_positive].view(-1)] = final_target_logit
             logits = logits * self.s
         else:
-            raise
+            raise ValueError("Invalid configuration for m1 and m3")
 
         criterion = torch.nn.CrossEntropyLoss()
         # logits still need to go through SoftMax for cross entropy loss

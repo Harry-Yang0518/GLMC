@@ -91,6 +91,7 @@ class Trainer_bn(object):
         elif self.args.loss == 'arcf' or self.args.loss == 'arcm':
             self.criterion = CombinedMarginLoss(64, self.args.margins[0], self.args.margins[1], self.args.margins[2])
 
+
     def train_one_epoch(self, epoch):
 
         # switch to train mode
@@ -106,7 +107,7 @@ class Trainer_bn(object):
         for i, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             
-            if self.args.loss == 'arcm' and self.args.bias == 'g' and epoch<=1 and i<=1 and self.args.dataset=='cifar10':
+            if self.args.loss == 'arcm' and self.args.bias == 'g' and epoch<=1 and i<=1:
                 with torch.no_grad(): 
                     _, feat = self.model(inputs, targets, ret='of')
                     self.model.fc.mu.data = torch.mean(feat, dim=0)
