@@ -57,7 +57,7 @@ def main(args):
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
     os.environ["WANDB_MODE"] = "online" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
-    wandb.init(project="24.6.23_2",name=args.store_name)
+    wandb.init(project="24.6.23_300ep",name=args.store_name)
     wandb.config.update(args)
     main_worker(wandb.config)
 

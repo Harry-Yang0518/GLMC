@@ -29,7 +29,7 @@ source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
 python main_bn.py --dataset cifar10 -a mresnet32 --imbalance_rate 0.01 \
 --imbalance_type exp --lr 0.01 --epochs 200 --loss ${LOSS} \
---bias ${BIAS} \
+--bias ${BIAS} --aug pc --epochs 300 \
 --store_name cf10_exp_bias_${BIAS}_loss${LOSS} "
 
 # python main_bn.py --batch_size 64 --dataset cifar10 -a mresnet32 --imbalance_rate ${IB} --imbalance_type step --lr 0.01 --seed 2021 

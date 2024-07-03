@@ -29,7 +29,7 @@ source /ext3/env.sh
 cd /scratch/hy2611/GLMC/
 python main_bn.py --dataset cifar100 -a mresnet32 --imbalance_rate 0.01 \
 --imbalance_type exp --lr 0.01 --epochs 200 --loss ${LOSS} \
---bias ${BIAS} \
+--bias ${BIAS} --aug pc --epochs 300 \
 --store_name cf100_exp_bias_${BIAS}_loss${LOSS} "
 
 
