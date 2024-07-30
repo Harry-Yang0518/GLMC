@@ -136,6 +136,8 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32')  # choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--branch2', default=False, action='store_true')  # turn on
     parser.add_argument('--contrast', default=False, action='store_true')
+    parser.add_argument('--cbm', type=str, default='learn')
+    parser.add_argument('--scheduler', type=str, default='cos')
 
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--imbalance_rate', default=1.0, type=float, help='imbalance factor')
@@ -158,10 +160,18 @@ if __name__ == '__main__':
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--norm', default=False, action='store_true')  # none|nn1|nn2
     parser.add_argument('--bn_type', type=str, default='bn')  # cbn: class balanced bn
+<<<<<<< HEAD
     parser.add_argument('--bias', type=str, default='t')  # t|f|c|g with arcm
     parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge|arcf
     parser.add_argument('--margins', type=str, default='1.0_0.5_0.0')
     parser.add_argument('--eps', type=float, default=0.05)  # for ls loss
+=======
+    parser.add_argument('--bias', type=str, default='t')  # t|f|c
+    parser.add_argument('--loss', type=str, default='ce')  # ce|ls|ceh|hinge
+    parser.add_argument('--s', type=int, default=64)
+    parser.add_argument('--margins', type=str, default='1.0_0.0_0.0')
+    parser.add_argument('--eps', type=float, default=0)  # for ls loss
+>>>>>>> e5e209d497b764ee92f6a0a3f182fea0cb5368b2
     parser.add_argument('--etf_cls', default=False, action='store_true')
     parser.add_argument('--aug', default='null', help='data augmentation')  # null | pc (padded_random_crop)
     parser.add_argument('--mixup', type=int, default=-1, help='flag for using mixup, -1 means no mixup')

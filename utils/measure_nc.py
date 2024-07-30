@@ -3,6 +3,7 @@ import os
 import torch
 import random
 import numpy as np
+import torch.nn.functional as F
 from scipy.sparse.linalg import svds
 
 
@@ -48,13 +49,18 @@ def analysis(model, loader, args):
                 data = torch.cat(data, dim=0)
                 target = torch.cat((target, target), dim=0)
             data, target = data.to(device), target.to(device)
-            logits, feats = model(data, target, ret='of')
+            if args.arch.startswith('mres'):
+                logits, feats = model(data, target, ret='of')
+            else:
+                logits, feats = model(data, ret='of')
             logits_list.append(logits)
             labels_list.append(target)
             feats_list.append(feats)
         logits = torch.cat(logits_list).to(device)
         labels = torch.cat(labels_list).to(device)
         feats = torch.cat(feats_list).to(device)
+    if args.loss in ['arcf', 'arcm'] and args.bias == 'g':
+        feats = F.normalize(feats-model.fc.mu.detach())
 
     loss = torch.nn.CrossEntropyLoss(reduction='mean')(logits, labels).item()
     acc = (logits.argmax(dim=-1) == labels).sum().item()/len(labels)
@@ -98,6 +104,9 @@ def analysis(model, loader, args):
         W = model.fc_cb.weight.detach().T  # [512, C]
     else: 
         W = model.fc.weight.detach().T
+    if args.loss in ['arcf', 'arcm'] and args.bias == 'g':
+        W = F.normalize(W, p=2, dim=0)
+
     M_norms = torch.norm(M_, dim=0)  # [C]
     W_norms = torch.norm(W , dim=0)  # [C]
 

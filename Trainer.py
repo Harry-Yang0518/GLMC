@@ -29,15 +29,18 @@ def soften_target(targets, num_classes, epsilon):
 
 
 class Trainer(object):
-    def __init__(self, args, model=None,train_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=logging):
+    def __init__(self, args, model=None,train_loader=None, val_loader=None,weighted_train_loader=None,per_class_num=[],log=logging, train_loader_base=None):
         self.args = args
         self.print_freq = args.print_freq
         self.label_weighting = args.label_weighting
         self.use_cuda = True
         self.num_classes = args.num_classes
+
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.weighted_train_loader = weighted_train_loader
+        self.train_loader_base = train_loader_base
+
         self.per_cls_weights = None
         self.cls_num_list = per_class_num
         self.contrast_weight = args.contrast_weight
@@ -137,7 +140,6 @@ class Trainer(object):
 
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
         wandb.watch(self.model, self.criterion, log="all", log_freq=10)
-        train_nc = Graph_Vars()
 
         for epoch in range(self.args.start_epoch, self.args.epochs):
 
@@ -159,6 +161,7 @@ class Trainer(object):
             if self.args.imbalance_type == 'step' and self.args.imbalance_rate < 1.0:
                 knn_acc1 = self.validate_knn(epoch=epoch)
 
+            # ============ adjust LR ============
             if self.args.dataset == 'ImageNet-LT' or self.args.dataset == 'iNaturelist2018':
                 self.paco_adjust_learning_rate(self.optimizer, epoch, self.args)
             else:
@@ -166,61 +169,65 @@ class Trainer(object):
             self.model.train()
 
             # remember best acc@1 and save checkpoint
-            is_best = acc1 > best_acc1
-            best_acc1 = max(acc1, best_acc1)
-            save_checkpoint(self.args, {
-                'epoch': epoch + 1,
-                'state_dict': self.model.state_dict(),
-                'best_acc1': best_acc1,
-            }, is_best, epoch + 1)
+            # is_best = acc1 > best_acc1
+            # best_acc1 = max(acc1, best_acc1)
+            # save_checkpoint(self.args, {
+            #     'epoch': epoch + 1,
+            #     'state_dict': self.model.state_dict(),
+            #     'best_acc1': best_acc1,
+            # }, is_best, epoch + 1)
 
             # # ============ Measure NC ============
             if self.args.debug > 0:
                 if (epoch + 1) % self.args.debug == 0:
-                    nc_dict = analysis(self.model, self.train_loader, self.args)
-                    self.log.info('Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
-                        nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'], nc_dict['nc2_w'],
-                        nc_dict['nc3'],
-                    ))
-                    train_nc.load_dt(nc_dict, epoch=epoch + 1, lr=self.optimizer.param_groups[0]['lr'])
-                    wandb.log({'nc/loss': nc_dict['loss'],
-                               'nc/acc': nc_dict['acc'],
-                               'nc/nc1': nc_dict['nc1'],
-                               'nc/nc2h': nc_dict['nc2_h'],
-                               'nc/nc2w': nc_dict['nc2_w'],
-                               'nc/nc3': nc_dict['nc3'],
-                               'nc/nc3d': nc_dict['nc3_d'],
+                    train_nc = analysis(self.model, self.train_loader_base, self.args)
+                    wandb.log({'train_nc/nc1': train_nc['nc1'],
+                               'train_nc/nc2h': train_nc['nc2_h'],
+                               'train_nc/nc2w': train_nc['nc2_w'],
+                               'train_nc/nc3': train_nc['nc3'],
+                               'train_nc/nc3d': train_nc['nc3_d'],
+                               'train_nc/acc': train_nc['acc'],
+                               'train_nc2/nc21_h': train_nc['nc21_h'],
+                               'train_nc2/nc22_h': train_nc['nc22_h'],
+                               'train_nc2/nc21_w': train_nc['nc21_w'],
+                               'train_nc2/nc22_w': train_nc['nc22_w'],
                                },
                               step=epoch + 1)
+
+                    test_nc = analysis(self.model, self.val_loader, self.args)
+                    wandb.log({
+                        'test_nc/nc1': test_nc['nc1'],
+                        'test_nc/nc2h': test_nc['nc2_h'],
+                        'test_nc/nc2w': test_nc['nc2_w'],
+                        'test_nc/nc3': test_nc['nc3'],
+                        'test_nc/nc3_d': test_nc['nc3_d'],
+                        'test_nc/acc': test_nc['acc'],
+                        'test_nc2/nc21_h': test_nc['nc21_h'],
+                        'test_nc2/nc22_h': test_nc['nc22_h'],
+                        'test_nc2/nc21_w': test_nc['nc21_w'],
+                        'test_nc2/nc22_w': test_nc['nc22_w'],
+                    }, step=epoch)
+
                     if self.args.imbalance_type == 'step' and self.args.imbalance_rate < 1.0:
-                        wandb.log({'nc1/w_mnorm': nc_dict['w_mnorm'],
-                                   'nc1/w_mnorm1': nc_dict['w_mnorm1'],
-                                   'nc1/w_mnorm2': nc_dict['w_mnorm2'],
-                                   'nc1/h_mnorm': nc_dict['h_mnorm'],
-                                   'nc1/h_mnorm1': nc_dict['h_mnorm1'],
-                                   'nc1/h_mnorm2': nc_dict['h_mnorm2'],
-                                   'nc1/w_cos1': nc_dict['w_cos1'],
-                                   'nc1/w_cos2': nc_dict['w_cos2'],
-                                   'nc1/w_cos3': nc_dict['w_cos3'],
-                                   'nc1/h_cos1': nc_dict['h_cos1'],
-                                   'nc1/h_cos2': nc_dict['h_cos2'],
-                                   'nc1/h_cos3': nc_dict['h_cos3']},
+                        wandb.log({'nc1/w_mnorm': train_nc['w_mnorm'],
+                                   'nc1/w_mnorm1': train_nc['w_mnorm1'],
+                                   'nc1/w_mnorm2': train_nc['w_mnorm2'],
+                                   'nc1/h_mnorm': train_nc['h_mnorm'],
+                                   'nc1/h_mnorm1': train_nc['h_mnorm1'],
+                                   'nc1/h_mnorm2': train_nc['h_mnorm2'],
+                                   'nc1/w_cos1': train_nc['w_cos1'],
+                                   'nc1/w_cos2': train_nc['w_cos2'],
+                                   'nc1/w_cos3': train_nc['w_cos3'],
+                                   'nc1/h_cos1': train_nc['h_cos1'],
+                                   'nc1/h_cos2': train_nc['h_cos2'],
+                                   'nc1/h_cos3': train_nc['h_cos3']},
                                   step=epoch + 1)
+
                     if (epoch + 1) % (self.args.debug * 5) == 0:
-                        fig = plot_nc(nc_dict)
+                        fig = plot_nc(train_nc)
                         wandb.log({"chart": fig}, step=epoch + 1)
 
-                        filename = os.path.join(self.args.root_model, self.args.store_name, 'analysis{}.pkl'.format(epoch))
-                        with open(filename, 'wb') as f:
-                            pickle.dump(nc_dict, f)
-                        self.log.info('-- Has saved the NC analysis result/epoch{} to {}'.format(epoch + 1, filename))
-
         self.log.info('Best Testing Prec@1: {:.3f}\n'.format(best_acc1))
-        # Store NC statistics
-        filename = os.path.join(self.args.root_model, self.args.store_name, 'train_nc.pkl')
-        with open(filename, 'wb') as f:
-            pickle.dump(train_nc, f)
-        self.log.info('-- Has saved Train NC analysis result to {}'.format(filename))
 
     def validate(self, epoch=None):
         # switch to evaluate mode

@@ -75,17 +75,18 @@ def main_worker(gpu, args):
         train_dataset, val_dataset = get_dataset(args)
     else:
         train_dataset, val_dataset = get_dataset_balanced(args)
-    # num_classes = len(np.unique(train_dataset.targets))
-    # assert num_classes == args.num_classes
+        train_dataset_base, _ = get_dataset_balanced(args, aug='null')
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+                                               num_workers=args.workers, persistent_workers=True, pin_memory=True, sampler=None)
+    train_loader_base = torch.utils.data.DataLoader(train_dataset_base, batch_size=args.batch_size, shuffle=False,
                                                num_workers=args.workers, persistent_workers=True, pin_memory=True, sampler=None)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=64, shuffle=False,
                                              num_workers=args.workers, persistent_workers=True, pin_memory=True)
 
     start_time = time.time()
     print("Training started!")
-    trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader, log=logging)
+    trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader, train_loader_base=train_loader_base, log=logging)
     trainer.train_base()
     end_time = time.time()
     print("It took {} to execute the program".format(hms_string(end_time - start_time)))
@@ -127,7 +128,7 @@ if __name__ == '__main__':
     # MLP settings (only when using mlp and res_adapt(in which case only width has effect))
     parser.add_argument('--width', type=int, default=512)
     parser.add_argument('--depth', type=int, default=4)
-    parser.add_argument('--no-bias', dest='bias', default=True, action='store_false')
+    parser.add_argument('--bias', type=str, default='f')
 
     # etc.
     parser.add_argument('--seed', default=3407, type=int, help='seed for initializing training. ')

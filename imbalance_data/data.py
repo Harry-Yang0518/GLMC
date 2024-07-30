@@ -50,8 +50,11 @@ def get_dataset(args):
         return trainset, testset
 
 
-def get_dataset_balanced(args):
-    transform_train, transform_val = get_transform(args.dataset, args.aug)
+def get_dataset_balanced(args, aug=None):
+    if aug is None:
+        transform_train, transform_val = get_transform(args.dataset, args.aug)
+    else:
+        transform_train, transform_val = get_transform(args.dataset, aug)
     if args.dataset == 'cifar10':
         trainset= CIFAR10('data', train=True, download=True, transform=transform_train, coarse=False)
         testset = CIFAR10('data', train=False, download=True, transform=transform_val, coarse=False)

@@ -26,7 +26,10 @@ class KNNClassifier(nn.Module):
         self.initialized = False
 
     def update(self, cfeats):
-        mean = cfeats['mean']
+        if self.feat_type == 'cl2nb':
+            mean = cfeats['mean_cb']
+        else:
+            mean = cfeats['mean']
         centroids = cfeats['{}cs'.format(self.feat_type)]
 
         mean = torch.from_numpy(mean)
@@ -43,7 +46,7 @@ class KNNClassifier(nn.Module):
         feat_mean = self.feat_mean
 
         # Feature transforms
-        if self.feat_type == 'cl2n':
+        if self.feat_type == 'cl2n' or self.feat_type == 'cl2nb':
             inputs = inputs - feat_mean
             # centroids = centroids - self.feat_mean
 

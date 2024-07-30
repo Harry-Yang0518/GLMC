@@ -13,7 +13,7 @@ from Trainer import Trainer
 from model import Resnet_LT
 from model import ResNet_new
 from imbalance_data import cifar10Imbanlance, cifar100Imbanlance, dataset_lt_data
-from imbalance_data.data import get_dataset
+from imbalance_data.data import get_dataset, get_dataset_balanced
 
 best_acc1 = 0
 
@@ -96,18 +96,21 @@ def main_worker(args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     # ================= Data loading code =================
-    train_dataset, val_dataset = get_dataset(args)
-    # train_dataset_minority = copy(train_dataset)
-    # change train_dataset_minority.data to keep the minory class only
+    if args.imbalance_type == 'exp' or args.imbalance_type == 'step':
+        train_dataset, val_dataset = get_dataset(args)
+    else:
+        train_dataset, val_dataset = get_dataset_balanced(args)
+        train_dataset_base, _ = get_dataset_balanced(args, aug='null')
+
     num_classes = len(np.unique(train_dataset.targets))
     assert num_classes == args.num_classes
 
     # ================= Default Loader
-    train_sampler = None
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                               shuffle=(train_sampler is None), num_workers=args.workers,
-                                               persistent_workers=True, pin_memory=True, sampler=train_sampler)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+                                               num_workers=args.workers, persistent_workers=True, pin_memory=True, sampler=None)
+    train_loader_base = torch.utils.data.DataLoader(train_dataset_base, batch_size=args.batch_size, shuffle=False,
+                                                    num_workers=args.workers, persistent_workers=True, pin_memory=True, sampler=None)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=64, shuffle=False,
                                              num_workers=args.workers, persistent_workers=True, pin_memory=True)
 
     # ================= weighted_loader
@@ -128,7 +131,7 @@ def main_worker(args):
 
     start_time = time.time()
     print("Training started!")
-    trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader,
+    trainer = Trainer(args, model=model, train_loader=train_loader, val_loader=val_loader, train_loader_base=train_loader_base,
                       weighted_train_loader=weighted_train_loader, per_class_num=cls_num_list, log=logging)
     trainer.train_base()
     end_time = time.time()

@@ -65,7 +65,10 @@ class Trainer_bn(object):
 
         self.model = model
         self.optimizer = torch.optim.SGD(self.model.parameters(), momentum=0.9, lr=args.lr, weight_decay=args.weight_decay)
-        self.train_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
+        if self.args.scheduler == 'cos':
+            self.train_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
+        elif self.args.scheduler == 'ms':
+            self.train_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[70, 140], gamma=0.1)
         self.update_weight()
         self.set_loss()
 
@@ -89,7 +92,7 @@ class Trainer_bn(object):
         elif self.args.loss == 'bce':
             self.criterion = nn.BCELoss(reduction='mean')
         elif self.args.loss == 'arcf' or self.args.loss == 'arcm':
-            self.criterion = CombinedMarginLoss(64, self.args.margins[0], self.args.margins[1], self.args.margins[2])
+            self.criterion = CombinedMarginLoss(s=self.args.s, m1=self.args.margins[0], m2=self.args.margins[1], m3=self.args.margins[2], eps=self.args.eps)
 
 
     def train_one_epoch(self, epoch):
@@ -107,7 +110,11 @@ class Trainer_bn(object):
         for i, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             
+<<<<<<< HEAD
             if self.args.loss == 'arcm' and self.args.bias == 'g' and epoch<=1 and i<=1:
+=======
+            if self.args.loss == 'arcm' and self.args.bias == 'g' and epoch<=1 and i<=1 and self.args.dataset in ['cifar10', 'cifar100']:
+>>>>>>> e5e209d497b764ee92f6a0a3f182fea0cb5368b2
                 with torch.no_grad(): 
                     _, feat = self.model(inputs, targets, ret='of')
                     self.model.fc.mu.data = torch.mean(feat, dim=0)
@@ -435,6 +442,16 @@ class Trainer_bn(object):
         labels = np.concatenate(labels_all)
         featmean = feats.mean(axis=0)
 
+        # balanced mean
+        if self.args.cbm == 'learn' and self.args.loss == 'arcm' and self.args.bias.lower=='g':
+            featmean_cb = self.model.fc.mu.data.cpu().numpy()
+        else:  # self.args.cbm == 'compute' and self.args.loss == 'arcm'
+            sum_ = torch.zeros((np.max(labels) + 1, feats.shape[-1]))     # [B, d]
+            sum_.index_add_(dim=0, index=torch.tensor(labels), source=torch.tensor(feats))   # [K, d]
+            cnt_ = torch.bincount(torch.tensor(labels))
+            avg_feat = sum_[cnt_ > 0] / cnt_[cnt_ > 0][:, None]  # [K, d]  class-wise mean feat
+            featmean_cb = avg_feat.mean(dim=0).numpy()           # class balanced mean
+
         def get_centroids(feats_, labels_):
             centroids = []
             for i in np.unique(labels_):
@@ -457,10 +474,20 @@ class Trainer_bn(object):
         cl2n_feats = cl2n_feats / norm_cl2n
         cl2n_centers = get_centroids(cl2n_feats.numpy(), labels)
 
+        # Get cl2nb centorids
+        cl2n_feats = torch.Tensor(feats.copy())
+        cl2n_feats = cl2n_feats - torch.Tensor(featmean_cb)
+        norm_cl2n = torch.norm(cl2n_feats, 2, 1, keepdim=True)
+        cl2n_feats = cl2n_feats / norm_cl2n
+        cl2nb_centers = get_centroids(cl2n_feats.numpy(), labels)
+
         return {'mean': featmean,
                 'uncs': un_centers,
                 'l2ncs': l2n_centers,
-                'cl2ncs': cl2n_centers}
+                'cl2ncs': cl2n_centers,
+                'cl2nbcs': cl2nb_centers,
+                'mean_cb': featmean_cb
+                }
 
     def train(self):
         best_acc1 = 0
@@ -610,7 +637,7 @@ class Trainer_bn(object):
             if self.args.imbalance_rate < 1.0:
                 cfeats = self.get_knncentroids()
                 self.knn_classifier = KNNClassifier(feat_dim=self.model.out_dim,
-                                                    num_classes=self.args.num_classes, feat_type='cl2n',
+                                                    num_classes=self.args.num_classes, feat_type='cl2nb',
                                                     dist_type='l2')
                 self.knn_classifier.update(cfeats)
             else:

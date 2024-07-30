@@ -1,6 +1,7 @@
 import os
 import math
 import torch
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -92,8 +93,10 @@ class CombinedMarginLoss(torch.nn.Module):
                  m1,
                  m2,
                  m3,
-                 interclass_filtering_threshold=0):
+                 interclass_filtering_threshold=0,
+                 eps = 0):
         super().__init__()
+        self.eps = eps
         self.s = s
         self.m1 = m1  # 1
         self.m2 = m2  # 0.5
@@ -122,12 +125,25 @@ class CombinedMarginLoss(torch.nn.Module):
 
         target_logit = logits[index_positive, labels[index_positive].view(-1)]
 
+<<<<<<< HEAD
         if self.m1 == 1.0 and self.m3 == 0.0:
             target_logit_arccos = target_logit.acos()  # angle for target class  \theta_y
             logits_arccos = logits.acos()        # angle for all classes   \theta_j
             final_target_logit = target_logit_arccos + self.m2  # \theta_y + m2
             logits[index_positive, labels[index_positive].view(-1)] = final_target_logit.cos()  # update \theta_y in \theta vector
+=======
+        if self.m1 == 1.0 and self.m3 == 0.0 and self.m2 > 0:
+            with torch.no_grad():
+                target_logit.arccos_()  # angle for target class  \theta_y
+                logits.arccos_()        # angle for all classes   \theta_j
+                final_target_logit = target_logit + self.m2  # \theta_y + m2
+                logits[index_positive, labels[index_positive].view(-1)] = final_target_logit  # update \theta_y in \theta vector
+                logits.cos_()
+>>>>>>> e5e209d497b764ee92f6a0a3f182fea0cb5368b2
             logits = logits * self.s  # s*cos(\theta_j)  (j=y: target class different)
+
+        elif self.m1 == 1.0 and self.m3 == 0.0 and self.m2 == 0.0:
+            logits = logits * self.s
 
         elif self.m3 > 0:
             final_target_logit = target_logit - self.m3
@@ -136,6 +152,13 @@ class CombinedMarginLoss(torch.nn.Module):
         else:
             raise ValueError("Invalid configuration for m1 and m3")
 
-        criterion = torch.nn.CrossEntropyLoss()
+        if self.eps > 0:
+            criterion = CrossEntropyLabelSmooth(logits.shape[-1], epsilon=self.eps)
+        elif self.eps == -1:
+            K = logits.shape[-1]
+            eps = np.exp(-1 / (K - 1) * self.s) / (np.exp(1 * self.s) + (K - 1) * np.exp(-1 / (K - 1) * self.s)) * K
+            criterion = CrossEntropyLabelSmooth(logits.shape[-1], epsilon=eps)
+        else:
+            criterion = torch.nn.CrossEntropyLoss()
         # logits still need to go through SoftMax for cross entropy loss
         return criterion(logits, labels)

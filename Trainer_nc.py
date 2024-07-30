@@ -8,7 +8,7 @@ import datetime
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from tensorboardX import SummaryWriter
+from torchvision.transforms import v2
 from sklearn.metrics import confusion_matrix
 
 from utils import util
@@ -33,23 +33,8 @@ def _get_polynomial_decay(lr, end_lr, decay_epochs, from_epoch=0, power=1.0):
     return lr_lambda
 
 
-def get_scheduler(args, optimizer, n_batches):
-    """cosine will change learning rate every iteration, others change learning rate every epoch"""
-
-    lr_lambda = _get_polynomial_decay(args.lr, args.end_lr,
-                                      decay_epochs=args.decay_epochs,
-                                      from_epoch=0, power=args.power)
-    SCHEDULERS = {
-        'step': torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs // 10, gamma=args.lr_decay),
-        'multi_step': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 350], gamma=0.1),
-        'ms': torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 350], gamma=0.1),
-        'poly': torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
-    }
-    return SCHEDULERS[args.scheduler]
-
-
 class Trainer(object):
-    def __init__(self, args, model=None, train_loader=None, val_loader=None, log=None):
+    def __init__(self, args, model=None, train_loader=None, val_loader=None, train_loader_base=None, log=None):
         self.args = args
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.print_freq = args.print_freq
@@ -57,20 +42,26 @@ class Trainer(object):
         self.epochs = args.epochs
         self.start_epoch = args.start_epoch
 
+        self.model = model
+        self.num_classes = args.num_classes
         self.train_loader = train_loader
         self.val_loader = val_loader
+        self.train_loader_base = train_loader_base
+
         if args.imbalance_type == 'step' or args.imbalance_type == 'exp':
             self.cls_num_list = np.array(train_loader.dataset.per_class_num)
         else:
             self.cls_num_list = np.array([500] * args.num_classes)
 
-        self.num_classes = args.num_classes
-        self.model = model
-        self.optimizer = torch.optim.SGD(self.model.parameters(), momentum=0.9, lr=self.lr,
-                                         weight_decay=args.weight_decay)
-        self.lr_scheduler = get_scheduler(args, self.optimizer, n_batches=len(train_loader))
-
+        self.optimizer = torch.optim.SGD(self.model.parameters(), momentum=0.9, lr=self.lr, weight_decay=args.weight_decay)
+        self.set_scheduler()
         self.log = log
+
+    def set_scheduler(self,):
+        if self.args.scheduler == 'cos':
+            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
+        elif self.args.scheduler in ['ms', 'multi_step']:
+            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[70, 140], gamma=0.1)
 
     def train_one_epoch(self):
         # switch to train mode
@@ -82,14 +73,22 @@ class Trainer(object):
 
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
-            output, h = self.model(inputs, ret='of')
+            if self.args.aug == 'cm' or self.args.aug == 'cutmix':  # cutmix augmentation within the mini-batch
+                cutmix = v2.CutMix(num_classes=self.args.num_classes)
+                inputs, reweighted_targets = cutmix(inputs, targets)  # reweighted target will be [B, K]
+                
+            if self.args.mixup >= 0:
+                output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup, mixup_alpha=self.args.mixup_alpha)
+            else:
+                output, h = self.model(inputs, ret='of')
 
             # ==== update loss and acc
+            loss = self.criterion(output,
+                                  reweighted_targets if self.args.mixup >= 0 or self.args.aug in ['cm', 'cutmix'] else targets)
+            losses.update(loss.item(), targets.size(0))
             train_acc.update(torch.sum(output.argmax(dim=-1) == targets).item() / targets.size(0),
                              targets.size(0)
                              )
-            loss = self.criterion(output, targets)
-            losses.update(loss.item(), targets.size(0))
 
             # ==== gradient update
             self.optimizer.zero_grad()
@@ -112,7 +111,6 @@ class Trainer(object):
 
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
         wandb.watch(self.model, self.criterion, log="all", log_freq=20)
-        train_nc = Graph_Vars()
 
         for epoch in range(self.start_epoch, self.epochs):
             start_time = time.time()
@@ -122,17 +120,13 @@ class Trainer(object):
             # ===== Log training metrics
             self.log.info(
                 '====>EPOCH_{epoch}_Iters_{iters}, Epoch Time:{epoch_time:.3f}, Loss:{loss:.4f}, Acc:{acc:.4f}'.format(
-                    epoch=epoch + 1, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg,
-                    acc=train_acc.avg
+                    epoch=epoch, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg, acc=train_acc.avg
                 ))
-            if epoch % 10 == 0 and self.args.bias:
-                bias_values = self.model.fc.bias.data
-                self.log.info('--Epoch_{epoch}, Bias: {bias_str}'.format(
-                    epoch=epoch + 1, bias_str=', '.join([f'{bias_value:.4f}' for bias_value in bias_values])))
+        
             wandb.log({'train/train_loss': losses.avg,
                        'train/train_acc': train_acc.avg,
                        'lr': self.optimizer.param_groups[0]['lr']},
-                      step=epoch + 1)
+                      step=epoch)
 
             # ===== evaluate on validation set
             acc1, acc5, cls_acc, many_acc, few_acc = self.validate(epoch=epoch)
@@ -140,39 +134,43 @@ class Trainer(object):
                        'val/val_acc5': acc5,
                        'val/many_acc': many_acc,
                        'val/few_acc': few_acc},
-                      step=epoch + 1)
+                      step=epoch)
 
             # ===== measure NC
             if self.args.debug > 0:
                 if (epoch + 1) % self.args.debug == 0:
-                    nc_dict = analysis(self.model, self.train_loader, self.args)
-                    nc_dict['test_acc'] = acc1
-
+                    train_nc = analysis(self.model, self.train_loader_base, self.args)
                     self.log.info(
-                        '>>>>Epoch:{}, Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}, TestAcc:{:.2f}'.format(
-                            epoch + 1, nc_dict['loss'], nc_dict['acc'], nc_dict['nc1'], nc_dict['nc2_h'],
-                            nc_dict['nc2_w'],
-                            nc_dict['nc3'], nc_dict['test_acc']))
-                    train_nc.load_dt(nc_dict, epoch=epoch + 1, lr=self.optimizer.param_groups[0]['lr'])
-                    wandb.log({'nc/loss': nc_dict['loss'],
-                               'nc/acc': nc_dict['acc'],
-                               'nc/nc1': nc_dict['nc1'],
-                               'nc/nc2h': nc_dict['nc2_h'],
-                               'nc/nc2w': nc_dict['nc2_w'],
-                               'nc/nc3': nc_dict['nc3'],
-                               'nc/w_norm': nc_dict['w_mnorm'],
-                               'nc/h_norm': nc_dict['h_mnorm'],
-                               'nc/nc3_d': nc_dict['nc3_d']
-                               }, step=epoch + 1)
-                    if (epoch + 1) % (self.args.debug * 5) == 0:
-                        fig = plot_nc(nc_dict)
-                        wandb.log({"chart": fig}, step=epoch + 1)
+                        '>>>>Epoch:{}, Train Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
+                            epoch, train_nc['loss'], train_nc['acc'], train_nc['nc1'], train_nc['nc2_h'], train_nc['nc2_w'], train_nc['nc3']))
+                    wandb.log({
+                        'train_nc/nc1': train_nc['nc1'],
+                        'train_nc/nc2h': train_nc['nc2_h'],
+                        'train_nc/nc2w': train_nc['nc2_w'],
+                        'train_nc/nc3': train_nc['nc3'],
+                        'train_nc/nc3_d': train_nc['nc3_d'],
+                        'train_nc2/nc21_h': train_nc['nc21_h'],
+                        'train_nc2/nc22_h': train_nc['nc22_h'],
+                        'train_nc2/nc21_w': train_nc['nc21_w'],
+                        'train_nc2/nc22_w': train_nc['nc22_w'],
+                    }, step=epoch)
 
-                        # filename = os.path.join(self.args.root_model, self.args.store_name,
-                        #                         'analysis{}.pkl'.format(epoch))
-                        # with open(filename, 'wb') as f:
-                        #     pickle.dump(nc_dict, f)
-                        # self.log.info('-- Has saved the NC analysis result/epoch{} to {}'.format(epoch + 1, filename))
+                    test_nc = analysis(self.model, self.val_loader, self.args)
+                    wandb.log({
+                        'test_nc/nc1': test_nc['nc1'],
+                        'test_nc/nc2h': test_nc['nc2_h'],
+                        'test_nc/nc2w': test_nc['nc2_w'],
+                        'test_nc/nc3': test_nc['nc3'],
+                        'test_nc/nc3_d': test_nc['nc3_d'],
+                        'test_nc2/nc21_h': test_nc['nc21_h'],
+                        'test_nc2/nc22_h': test_nc['nc22_h'],
+                        'test_nc2/nc21_w': test_nc['nc21_w'],
+                        'test_nc2/nc22_w': test_nc['nc22_w'],
+                    }, step=epoch)
+
+                    if (epoch + 1) % (self.args.debug * 5) == 0:
+                        fig = plot_nc(train_nc)
+                        wandb.log({"chart": fig}, step=epoch + 1)
 
             if self.args.scheduler in ['step', 'ms', 'multi_step', 'poly']:
                 self.lr_scheduler.step()
@@ -180,14 +178,7 @@ class Trainer(object):
 
         self.log.info('Best Testing Prec@1: {:.3f}\n'.format(best_acc1))
 
-        # Store NC statistics
-        filename = os.path.join(self.args.root_model, self.args.store_name, 'train_nc.pkl')
-        with open(filename, 'wb') as f:
-            pickle.dump(train_nc, f)
-        self.log.info('-- Has saved Train NC analysis result to {}'.format(filename))
-
-    def validate(self, epoch=None, ret_fine=False):
-        batch_time = AverageMeter('Time', ':6.3f')
+    def validate(self, epoch=None):
         top1 = AverageMeter('Acc@1', ':6.2f')
         top5 = AverageMeter('Acc@5', ':6.2f')
 
@@ -197,7 +188,6 @@ class Trainer(object):
         all_targets = []
 
         with torch.no_grad():
-            end = time.time()
             for i, (input, target) in enumerate(self.val_loader):
                 input = input.to(self.device)
                 target = target.to(self.device)
@@ -210,18 +200,12 @@ class Trainer(object):
                 top1.update(acc1.item(), input.size(0))
                 top5.update(acc5.item(), input.size(0))
 
-                # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
-
                 _, pred = torch.max(output, 1)
                 all_preds.extend(pred.cpu().numpy())
                 all_targets.extend(target.cpu().numpy())
 
             self.log.info(
-                '---->EPOCH_{epoch} Val: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'.format(epoch=epoch + 1, top1=top1, top5=top5))
-            # out_cls_acc = '%s Class Accuracy: %s' % ('val', (np.array2string(cls_acc, separator=',', formatter={'float_kind': lambda x: "%.3f" % x})))
-            # self.log.info(out_cls_acc)
+                '---->EPOCH_{epoch} Val: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'.format(epoch=epoch, top1=top1, top5=top5))
 
         cls_acc, many_acc, few_acc = self.calculate_acc(all_targets, all_preds)
         return top1.avg, top5.avg, cls_acc, many_acc, few_acc
