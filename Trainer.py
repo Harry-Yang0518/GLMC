@@ -1,4 +1,4 @@
-import sys
+from data.cifar100_coarse2fine import coarse_id_fine_id
 import math
 import time
 import wandb

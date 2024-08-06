@@ -1,4 +1,4 @@
-import sys
+from data.cifar100_coarse2fine import fine_id_coarse_id
 import math
 import time
 import wandb
@@ -113,64 +113,54 @@ class Trainer(object):
         wandb.watch(self.model, self.criterion, log="all", log_freq=20)
 
         for epoch in range(self.start_epoch, self.epochs):
-            start_time = time.time()
-            losses, train_acc = self.train_one_epoch()
-            epoch_time = time.time() - start_time
 
-            # ===== Log training metrics
-            self.log.info(
-                '====>EPOCH_{epoch}_Iters_{iters}, Epoch Time:{epoch_time:.3f}, Loss:{loss:.4f}, Acc:{acc:.4f}'.format(
-                    epoch=epoch, iters=len(self.train_loader), epoch_time=epoch_time, loss=losses.avg, acc=train_acc.avg
-                ))
+            # ========= Train one epoch =========
+            losses, train_acc = self.train_one_epoch()
+
+            self.log.info('====>EPOCH_{epoch}, Loss:{loss:.4f}, Acc:{acc:.4f}'.format(epoch=epoch, loss=losses.avg, acc=train_acc.avg))
         
             wandb.log({'train/train_loss': losses.avg,
                        'train/train_acc': train_acc.avg,
                        'lr': self.optimizer.param_groups[0]['lr']},
                       step=epoch)
 
-            # ===== evaluate on validation set
-            acc1, acc5, cls_acc, many_acc, few_acc = self.validate(epoch=epoch)
-            wandb.log({'val/val_acc1': acc1,
-                       'val/val_acc5': acc5,
-                       'val/many_acc': many_acc,
-                       'val/few_acc': few_acc},
-                      step=epoch)
+            # ========= evaluate on validation set =========
+            val_acc = self.validate(epoch=epoch)
+            wandb.log({'val/val_acc1': val_acc},step=epoch)
 
-            # ===== measure NC
-            if self.args.debug > 0:
-                if (epoch + 1) % self.args.debug == 0:
-                    train_nc = analysis(self.model, self.train_loader_base, self.args)
-                    self.log.info(
-                        '>>>>Epoch:{}, Train Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC2h:{:.3f}, NC2W:{:.3f}, NC3:{:.3f}'.format(
-                            epoch, train_nc['loss'], train_nc['acc'], train_nc['nc1'], train_nc['nc2_h'], train_nc['nc2_w'], train_nc['nc3']))
-                    wandb.log({
-                        'train_nc/nc1': train_nc['nc1'],
-                        'train_nc/nc2h': train_nc['nc2_h'],
-                        'train_nc/nc2w': train_nc['nc2_w'],
-                        'train_nc/nc3': train_nc['nc3'],
-                        'train_nc/nc3_d': train_nc['nc3_d'],
-                        'train_nc2/nc21_h': train_nc['nc21_h'],
-                        'train_nc2/nc22_h': train_nc['nc22_h'],
-                        'train_nc2/nc21_w': train_nc['nc21_w'],
-                        'train_nc2/nc22_w': train_nc['nc22_w'],
-                    }, step=epoch)
+            # ========= measure NC =========
+            if (epoch + 1) % self.args.debug == 0 and self.args.debug > 0:
+                train_nc = analysis(self.model, self.train_loader_base, self.args)
+                self.log.info('>>>>Epoch:{}, Train Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC3:{:.3f}'.format(
+                    epoch, train_nc['loss'], train_nc['acc'], train_nc['nc1'], train_nc['nc3']))
+                wandb.log({
+                    'train_nc/nc1': train_nc['nc1'],
+                    'train_nc/nc2h': train_nc['nc2_h'],
+                    'train_nc/nc2w': train_nc['nc2_w'],
+                    'train_nc/nc3': train_nc['nc3'],
+                    'train_nc/nc3_d': train_nc['nc3_d'],
+                    'train_nc2/nc21_h': train_nc['nc21_h'],
+                    'train_nc2/nc22_h': train_nc['nc22_h'],
+                    'train_nc2/nc21_w': train_nc['nc21_w'],
+                    'train_nc2/nc22_w': train_nc['nc22_w'],
+                }, step=epoch)
 
-                    test_nc = analysis(self.model, self.val_loader, self.args)
-                    wandb.log({
-                        'test_nc/nc1': test_nc['nc1'],
-                        'test_nc/nc2h': test_nc['nc2_h'],
-                        'test_nc/nc2w': test_nc['nc2_w'],
-                        'test_nc/nc3': test_nc['nc3'],
-                        'test_nc/nc3_d': test_nc['nc3_d'],
-                        'test_nc2/nc21_h': test_nc['nc21_h'],
-                        'test_nc2/nc22_h': test_nc['nc22_h'],
-                        'test_nc2/nc21_w': test_nc['nc21_w'],
-                        'test_nc2/nc22_w': test_nc['nc22_w'],
-                    }, step=epoch)
+                test_nc = analysis(self.model, self.val_loader, self.args)
+                wandb.log({
+                    'test_nc/nc1': test_nc['nc1'],
+                    'test_nc/nc2h': test_nc['nc2_h'],
+                    'test_nc/nc2w': test_nc['nc2_w'],
+                    'test_nc/nc3': test_nc['nc3'],
+                    'test_nc/nc3_d': test_nc['nc3_d'],
+                    'test_nc2/nc21_h': test_nc['nc21_h'],
+                    'test_nc2/nc22_h': test_nc['nc22_h'],
+                    'test_nc2/nc21_w': test_nc['nc21_w'],
+                    'test_nc2/nc22_w': test_nc['nc22_w'],
+                }, step=epoch)
 
-                    if (epoch + 1) % (self.args.debug * 5) == 0:
-                        fig = plot_nc(train_nc)
-                        wandb.log({"chart": fig}, step=epoch + 1)
+                if (epoch + 1) % (self.args.debug * 5) == 0:
+                    fig = plot_nc(train_nc)
+                    wandb.log({"chart": fig}, step=epoch + 1)
 
             if self.args.scheduler in ['step', 'ms', 'multi_step', 'poly']:
                 self.lr_scheduler.step()
@@ -179,9 +169,6 @@ class Trainer(object):
         self.log.info('Best Testing Prec@1: {:.3f}\n'.format(best_acc1))
 
     def validate(self, epoch=None):
-        top1 = AverageMeter('Acc@1', ':6.2f')
-        top5 = AverageMeter('Acc@5', ':6.2f')
-
         # switch to evaluate mode
         self.model.eval()
         all_preds = []
@@ -192,23 +179,21 @@ class Trainer(object):
                 input = input.to(self.device)
                 target = target.to(self.device)
 
-                # compute output
                 output = self.model(input, ret='o')
-
-                # measure accuracy
-                acc1, acc5 = accuracy(output, target, topk=(1, 5))
-                top1.update(acc1.item(), input.size(0))
-                top5.update(acc5.item(), input.size(0))
-
                 _, pred = torch.max(output, 1)
+
                 all_preds.extend(pred.cpu().numpy())
                 all_targets.extend(target.cpu().numpy())
 
-            self.log.info(
-                '---->EPOCH_{epoch} Val: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'.format(epoch=epoch, top1=top1, top5=top5))
+        if self.args.coarse == 't':
+            vectorized_map = np.vectorize(fine_id_coarse_id.get)
+            preds = vectorized_map(np.array(all_preds))
+        else:
+            preds = np.array(all_preds)
+        targets = np.array(all_targets)
 
-        cls_acc, many_acc, few_acc = self.calculate_acc(all_targets, all_preds)
-        return top1.avg, top5.avg, cls_acc, many_acc, few_acc
+        acc = np.sum(preds == targets)/len(targets)
+        return acc
 
     def calculate_acc(self, targets, preds):
         eps = np.finfo(np.float64).eps

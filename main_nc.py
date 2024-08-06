@@ -11,6 +11,7 @@ from utils import util
 from utils.util import *
 from Trainer_nc import Trainer
 from model import model_nc
+from model import ResNet_new
 from imbalance_data.data import get_dataset, get_dataset_balanced
 
 best_acc1 = 0
@@ -19,6 +20,8 @@ best_acc1 = 0
 def get_model(args):
     if args.arch.lower() == 'mlp':
         model = model_nc.MLP(hidden=args.width, depth=args.depth, fc_bias=args.bias, num_classes=args.num_classes)
+    if args.arch.lower() == 'mresnet32':
+        model = ResNet_new.mresnet32(args=args)
     else:
         model = model_nc.ResNet(pretrained=False, num_classes=args.num_classes, backbone=args.arch, args=args)
     return model
@@ -74,8 +77,15 @@ def main_worker(gpu, args):
     if args.imbalance_type == 'exp' or args.imbalance_type == 'step':
         train_dataset, val_dataset = get_dataset(args)
     else:
-        train_dataset, val_dataset = get_dataset_balanced(args)
-        train_dataset_base, _ = get_dataset_balanced(args, aug='null')
+        if args.coarse == 'b':  # both train and test
+            train_dataset, val_dataset = get_dataset_balanced(args, train_coarse=True, val_coarse=True)
+            train_dataset_base, _ = get_dataset_balanced(args, train_aug='null', train_coarse=True, val_coarse=True)
+        elif args.coarse == 't':  # train at fine-grain level and test at coarse level
+            train_dataset, val_dataset = get_dataset_balanced(args, train_coarse=False, val_coarse=True)
+            train_dataset_base, _ = get_dataset_balanced(args, train_aug='null', train_coarse=True, val_coarse=True)
+        else:
+            train_dataset, val_dataset = get_dataset_balanced(args, train_coarse=False, val_coarse=False)
+            train_dataset_base, _ = get_dataset_balanced(args, train_aug='null', train_coarse=False, val_coarse=False)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                                                num_workers=args.workers, persistent_workers=True, pin_memory=True, sampler=None)
@@ -98,7 +108,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,stl10")
     parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
     parser.add_argument('--aug', default='null', help='data augmentation')  # null | pc (padded_random_crop)
-    parser.add_argument('--coarse', default=False, action='store_true')
+    parser.add_argument('--coarse', default='f', type=str, help='f:False, t:Test at coarse level, b: Both train and test')
     parser.add_argument('--imbalance_rate', type=float, default=1.0)
     parser.add_argument('--imbalance_type', type=str, default='null')  # null | step | exp
 
@@ -144,7 +154,7 @@ if __name__ == '__main__':
     if args.dataset == 'cifar10' or args.dataset == 'fmnist':
         args.num_classes = 10
     elif args.dataset == 'cifar100':
-        if args.coarse:
+        if args.coarse == 'b':
             args.num_classes = 20
         else:
             args.num_classes = 100

@@ -50,20 +50,20 @@ def get_dataset(args):
         return trainset, testset
 
 
-def get_dataset_balanced(args, aug=None):
-    if aug is None:
+def get_dataset_balanced(args, train_aug=None, train_coarse=False, val_coarse=False):
+    if train_aug is None:
         transform_train, transform_val = get_transform(args.dataset, args.aug)
     else:
-        transform_train, transform_val = get_transform(args.dataset, aug)
+        transform_train, transform_val = get_transform(args.dataset, train_aug)
     if args.dataset == 'cifar10':
-        trainset= CIFAR10('data', train=True, download=True, transform=transform_train, coarse=False)
-        testset = CIFAR10('data', train=False, download=True, transform=transform_val, coarse=False)
+        trainset= CIFAR10('data', train=True, download=True, transform=transform_train, coarse=train_coarse)
+        testset = CIFAR10('data', train=False, download=True, transform=transform_val, coarse=val_coarse)
         print("load cifar10")
         return trainset, testset
 
     elif args.dataset == 'cifar100':
-        trainset= CIFAR100('data', train=True, download=True, transform=transform_train, coarse=args.coarse)
-        testset = CIFAR100('data', train=False, download=True, transform=transform_val, coarse=args.coarse)
+        trainset= CIFAR100('data', train=True, download=True, transform=transform_train, coarse=train_coarse)
+        testset = CIFAR100('data', train=False, download=True, transform=transform_val, coarse=val_coarse)
         print("load cifar100")
         return trainset, testset
 
