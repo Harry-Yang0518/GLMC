@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-from ..data.cifar100_coarse2fine import fine_id_coarse_id
-import os
 import torch
-import random
 import numpy as np
 import torch.nn.functional as F
 from scipy.sparse.linalg import svds

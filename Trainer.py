@@ -1,9 +1,6 @@
-from data.cifar100_coarse2fine import coarse_id_fine_id
 import math
 import time
 import wandb
-import torch
-import pickle
 import logging
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,7 +12,7 @@ from utils.util import *
 from utils.plot import plot_nc
 from utils.measure_nc import analysis
 from model.KNN_classifier import KNNClassifier
-from model.loss import CrossEntropyLabelSmooth, CDTLoss, LDTLoss, CombinedMarginLoss
+from model.loss import CrossEntropyLabelSmooth, LDTLoss, CombinedMarginLoss
 
 
 def soften_target(targets, num_classes, epsilon):

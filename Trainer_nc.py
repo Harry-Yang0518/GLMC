@@ -1,22 +1,13 @@
-from data.cifar100_coarse2fine import fine_id_coarse_id
-import math
-import time
+from imbalance_data.cifar100_coarse2fine import fine_id_coarse_id
 import wandb
-import torch
-import pickle
-import datetime
-import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision.transforms import v2
 from sklearn.metrics import confusion_matrix
 
-from utils import util
 from utils.util import *
 from utils.plot import plot_nc
 from utils.measure_nc import analysis
-from model.KNN_classifier import KNNClassifier
-from model.loss import CrossEntropyLabelSmooth, CDTLoss, LDTLoss
+from model.loss import CrossEntropyLabelSmooth
 
 
 def _get_polynomial_decay(lr, end_lr, decay_epochs, from_epoch=0, power=1.0):
