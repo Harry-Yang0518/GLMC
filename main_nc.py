@@ -39,14 +39,10 @@ def main(args):
         cudnn.deterministic = True
         cudnn.benchmark = True
 
-    os.environ["WANDB_API_KEY"] = "0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee"
-    os.environ["WANDB_MODE"] = "online" #"dryrun"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/lg154/sseg/.cache/wandb"
-    os.environ["WANDB_CONFIG_DIR"] = "/scratch/lg154/sseg/.config/wandb"
-    wandb.login(key='0c0abb4e8b5ce4ee1b1a4ef799edece5f15386ee')
-    wandb.init(project="NC2_"+str(args.dataset),
-               name= args.store_name.split('/')[-1]
-               )
+    os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
+    os.environ["WANDB_MODE"] = "dryrun" #"dryrun"
+    wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
+    wandb.init(project="sup/ce",name=args.store_name)
     wandb.config.update(args)
     main_worker(args.gpu, wandb.config)
 
@@ -76,6 +72,7 @@ def main_worker(gpu, args):
     # ================= Data loading code
     if args.imbalance_type == 'exp' or args.imbalance_type == 'step':
         train_dataset, val_dataset = get_dataset(args)
+        train_dataset_base = None  # Set a default value to avoid reference before assignment
     else:
         if args.coarse == 'b':  # both train and test
             train_dataset, val_dataset = get_dataset_balanced(args, train_coarse=True, val_coarse=True)
@@ -106,14 +103,14 @@ if __name__ == '__main__':
     # train set
     parser = argparse.ArgumentParser(description="Global and Local Mixture Consistency Cumulative Learning")
     parser.add_argument('--dataset', type=str, default='cifar100', help="cifar10,cifar100,stl10")
-    parser.add_argument('--root', type=str, default='../dataset/', help="dataset setting")
+    parser.add_argument('--root', type=str, default='/scratch/hy2611/GLMC-LYGeng/data/', help="dataset setting")
     parser.add_argument('--aug', default='null', help='data augmentation')  # null | pc (padded_random_crop)
     parser.add_argument('--coarse', default='f', type=str, help='f:False, t:Test at coarse level, b: Both train and test')
     parser.add_argument('--imbalance_rate', type=float, default=1.0)
     parser.add_argument('--imbalance_type', type=str, default='null')  # null | step | exp
 
     # model structure
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32', choices=('resnet18', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
+    parser.add_argument('-a', '--arch', metavar='ARCH', default='mresnet32', choices=('resnet18', 'mresnet32', 'resnet34', 'resnet32', 'resnet50', 'resnext50_32x4d'))
     parser.add_argument('--num_classes', default=100, type=int, help='number of classes ')
     parser.add_argument('--norm', type=str, default='bn', help='Type of norm layer')  # bn|gn
 
@@ -129,6 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
     parser.add_argument('--wd', '--weight_decay', default=5e-4, type=float, metavar='W', help='weight decay (default: 5e-3、2e-4、1e-4)', dest='weight_decay')
 
+    parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
     parser.add_argument('--loss', type=str, default='ce')   # ce|ls|ceh|hinge
     parser.add_argument('--eps', type=float, default=0.05)  # for ls loss
     parser.add_argument('--etf_cls', default=False, action='store_true')

@@ -1,6 +1,3 @@
-# This is a modified version of original  https://github.com/pytorch/vision/blob/master/torchvision/datasets/cifar.py
-# Coarse labels is added for cifar100 as an option
-
 from __future__ import print_function
 from PIL import Image
 import os
@@ -15,6 +12,10 @@ else:
 
 import torch.utils.data as data
 from torchvision.datasets.utils import download_url, check_integrity
+import ssl
+
+# Create an unverified SSL context
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
 class CIFAR10(data.Dataset):
@@ -47,7 +48,6 @@ class CIFAR10(data.Dataset):
     test_list = [
         ['test_batch', '40351d587109b95175f43aff81a1287e'],
     ]
-
 
     def __init__(self, root, train=True,
                  transform=None, target_transform=None,

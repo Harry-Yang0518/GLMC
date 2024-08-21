@@ -6,7 +6,7 @@ from sklearn.metrics import confusion_matrix
 
 from utils.util import *
 from utils.plot import plot_nc
-from utils.measure_nc import analysis
+from utils.measure_nc_coarse import analysis
 from model.loss import CrossEntropyLabelSmooth
 
 
@@ -120,7 +120,7 @@ class Trainer(object):
             wandb.log({'val/val_acc1': val_acc},step=epoch)
 
             # ========= measure NC =========
-            if (epoch + 1) % self.args.debug == 0 and self.args.debug > 0:
+            if (epoch + 1) % self.args.debug == 0 and self.args.debug > 0:  #debug
                 train_nc = analysis(self.model, self.train_loader_base, self.args)
                 self.log.info('>>>>Epoch:{}, Train Loss:{:.3f}, Acc:{:.2f}, NC1:{:.3f}, NC3:{:.3f}'.format(
                     epoch, train_nc['loss'], train_nc['acc'], train_nc['nc1'], train_nc['nc3']))
@@ -149,7 +149,7 @@ class Trainer(object):
                     'test_nc2/nc22_w': test_nc['nc22_w'],
                 }, step=epoch)
 
-                if (epoch + 1) % (self.args.debug * 5) == 0:
+                if (epoch + 1) % (self.args.debug * 5) == 0:  #debug
                     fig = plot_nc(train_nc)
                     wandb.log({"chart": fig}, step=epoch + 1)
 
