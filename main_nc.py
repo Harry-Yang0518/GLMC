@@ -40,9 +40,9 @@ def main(args):
         cudnn.benchmark = True
 
     os.environ["WANDB_API_KEY"] = "cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb"
-    os.environ["WANDB_MODE"] = "dryrun" #"dryrun"
+    os.environ["WANDB_MODE"] = "online" #"dryrun"
     wandb.login(key='cd3fbdd397ddb5a83b1235d177f4d81ce1200dbb')
-    wandb.init(project="sup/ce",name=args.store_name)
+    wandb.init(project="sup_ce",name=args.store_name)
     wandb.config.update(args)
     main_worker(args.gpu, wandb.config)
 
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('--wd', '--weight_decay', default=5e-4, type=float, metavar='W', help='weight decay (default: 5e-3、2e-4、1e-4)', dest='weight_decay')
 
     parser.add_argument('--feat', type=str, default='none')  # none|nn1|nn2
-    parser.add_argument('--loss', type=str, default='ce')   # ce|ls|ceh|hinge
+    parser.add_argument('--loss', type=str, default='ce')   # ce|ls|ceh|hinge\supcon
     parser.add_argument('--eps', type=float, default=0.05)  # for ls loss
     parser.add_argument('--etf_cls', default=False, action='store_true')
     parser.add_argument('--mixup', type=int, default=-1, help='flag for using mixup, -1 means no mixup')

@@ -161,10 +161,7 @@ class CombinedMarginLoss(torch.nn.Module):
 Author: Yonglong Tian (yonglong@mit.edu)
 Date: May 07, 2020
 """
-from __future__ import print_function
 
-import torch
-import torch.nn as nn
 
 
 class SupConLoss(nn.Module):
@@ -193,10 +190,14 @@ class SupConLoss(nn.Module):
         device = (torch.device('cuda')
                   if features.is_cuda
                   else torch.device('cpu'))
-
-        if len(features.shape) < 3:
+        #breakpoint()
+        if len(features.shape) == 2:  # Assuming features is [batch_size, feature_dim]
+            features = features.unsqueeze(1)  # Add the n_views dimension
+        
+        elif len(features.shape) < 3:
             raise ValueError('`features` needs to be [bsz, n_views, ...],'
                              'at least 3 dimensions are required')
+        
         if len(features.shape) > 3:
             features = features.view(features.shape[0], features.shape[1], -1)
 

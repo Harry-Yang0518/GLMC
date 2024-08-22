@@ -10,9 +10,9 @@
 #SBATCH --partition=a100_1,a100_2,v100,rtx8000
 
 # job info
-IMB_TYPE=$1
-IMB_RATE=$2
-CORASE=$3
+
+CORASE=$1
+LOSS=$2
 
 
 
@@ -25,7 +25,7 @@ singularity exec --nv \
 --overlay ${ext3_path}:ro \
 ${sif_path} /bin/bash -c "
 source /ext3/env.sh
-python /scratch/hy2611/GLMC/main_nc.py --dataset cifar100 --imbalance_type ${IMB_TYPE} --imbalance_rate ${IMB_RATE} \
- --epochs 200 --coarse ${CORASE} \
---loss ce --eps 0.05 --batch_size 64 --store_name coarse_${CORASE}_nc_${IMB_TYPE}_${IMB_RATE} \
+python /scratch/hy2611/GLMC/main_nc.py --dataset cifar100 --loss ${LOSS} \
+ --epochs 200 --coarse ${CORASE} --aug pc \
+--eps 0.05 --batch_size 64 --store_name coarse_${CORASE}_${LOSS} \
 "

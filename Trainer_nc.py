@@ -7,7 +7,7 @@ from sklearn.metrics import confusion_matrix
 from utils.util import *
 from utils.plot import plot_nc
 from utils.measure_nc_coarse import analysis
-from model.loss import CrossEntropyLabelSmooth
+from model.loss import CrossEntropyLabelSmooth, SupConLoss
 
 
 def _get_polynomial_decay(lr, end_lr, decay_epochs, from_epoch=0, power=1.0):
@@ -72,7 +72,11 @@ class Trainer(object):
                 output, reweighted_targets, h = self.model.forward_mixup(inputs, targets, mixup=self.args.mixup, mixup_alpha=self.args.mixup_alpha)
             else:
                 output, h = self.model(inputs, ret='of')
-
+            
+            # Conditional feature squeezing based on loss type
+            if self.args.loss == 'supcon':
+                # Add an extra dimension for SupConLoss
+                output = output.unsqueeze(1)  # Shape: [batch_size, 1, feature_dim]
             # ==== update loss and acc
             loss = self.criterion(output,
                                   reweighted_targets if self.args.mixup >= 0 or self.args.aug in ['cm', 'cutmix'] else targets)
@@ -99,7 +103,9 @@ class Trainer(object):
             self.criterion = nn.CrossEntropyLoss(reduction='mean')  # train fc_bc
         elif self.args.loss == 'ls':
             self.criterion = CrossEntropyLabelSmooth(self.args.num_classes, epsilon=self.args.eps)
-
+        elif self.args.loss == 'supcon':
+            self.criterion = SupConLoss(temperature=0.15, contrast_mode='one',
+                 base_temperature=0.15)
         # tell wandb to watch what the model gets up to: gradients, weights, and more!
         wandb.watch(self.model, self.criterion, log="all", log_freq=20)
 
